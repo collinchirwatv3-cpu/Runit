@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
   StyleSheet, Text, View, TouchableOpacity,
-  Animated, TextInput, ScrollView, Alert, ActivityIndicator,
+  Animated, TextInput, ScrollView, Alert, ActivityIndicator, Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,22 +16,10 @@ const SURFACE2 = '#181818';
 const BORDER = '#1e1e1e';
 const MUTED = '#444';
 const GREY = '#777';
-
 const BASE = 15;
 const RATE = 6.5;
 
-// ─── Distance calculation ─────────────────────────────────────────────────
-
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+// ─── Geocoding ────────────────────────────────────────────────────────────
 
 const geocodeCache = {};
 
@@ -54,24 +42,174 @@ async function geocode(query) {
   return null;
 }
 
-// road-distance correction factor for Cape Town's peninsula geography
-const ROAD_FACTOR = 1.35;
+// ─── OSRM road routing ────────────────────────────────────────────────────
 
-async function getDistanceKm(fromAddr, toAddr) {
-  const [a, b] = await Promise.all([geocode(fromAddr), geocode(toAddr)]);
-  if (a && b) {
-    const straight = haversine(a.lat, a.lon, b.lat, b.lon);
-    return Math.round(straight * ROAD_FACTOR * 10) / 10;
-  }
-  return null;
+async function getRoute(a, b) {
+  try {
+    const url =
+      `https://router.project-osrm.org/route/v1/driving/` +
+      `${a.lon},${a.lat};${b.lon},${b.lat}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.routes?.[0]) {
+      const route = data.routes[0];
+      return {
+        coords: route.geometry.coordinates.map(([lon, lat]) => [lat, lon]),
+        distKm: Math.round(route.distance / 100) / 10,
+        durationMin: Math.round(route.duration / 60),
+      };
+    }
+  } catch (_) {}
+  // Haversine fallback
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2;
+  const straight = R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  return {
+    coords: [[a.lat, a.lon], [b.lat, b.lon]],
+    distKm: Math.round(straight * 1.35 * 10) / 10,
+    durationMin: Math.round((straight * 1.35 / 22) * 60),
+  };
 }
 
-function etaMin(km) {
-  // ~22 km/h avg in Cape Town traffic
-  return Math.max(5, Math.round((km / 22) * 60));
+// ─── Leaflet map (web only) ───────────────────────────────────────────────
+
+function RouteMap({ fromCoords, toCoords, routeCoords, fromLabel, toLabel }) {
+  if (Platform.OS !== 'web') return null;
+
+  const routeJson = JSON.stringify(routeCoords);
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; background:#080808; }
+#map { width:100%; height:100%; }
+.leaflet-control-attribution { display:none; }
+.leaflet-control-zoom { display:none; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+const map = L.map('map', { zoomControl:false, attributionControl:false });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom:18 }).addTo(map);
+
+const routeCoords = ${routeJson};
+const A = [${fromCoords.lat}, ${fromCoords.lon}];
+const B = [${toCoords.lat}, ${toCoords.lon}];
+
+// Route line
+L.polyline(routeCoords, { color:'#c8f000', weight:3, opacity:0.85 }).addTo(map);
+
+// Subtle route glow
+L.polyline(routeCoords, { color:'#c8f000', weight:8, opacity:0.12 }).addTo(map);
+
+// Pickup marker
+const iconA = L.divIcon({
+  html: '<div style="width:16px;height:16px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(200,240,0,0.7)"></div>',
+  iconSize:[16,16], iconAnchor:[8,8], className:''
+});
+// Drop-off marker
+const iconB = L.divIcon({
+  html: '<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(239,68,68,0.6)"></div>',
+  iconSize:[16,16], iconAnchor:[8,8], className:''
+});
+
+L.marker(A, { icon:iconA }).bindTooltip('${fromLabel.replace(/'/g,"\\'")}', { permanent:true, direction:'top', className:'tip', offset:[0,-10] }).addTo(map);
+L.marker(B, { icon:iconB }).bindTooltip('${toLabel.replace(/'/g,"\\'")}', { permanent:true, direction:'bottom', className:'tip', offset:[0,10] }).addTo(map);
+
+map.fitBounds(L.latLngBounds([A, B]).pad(0.35));
+</script>
+<style>
+.tip {
+  background: rgba(8,8,8,0.92);
+  border: 1px solid #1e1e1e;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: -apple-system, sans-serif;
+  padding: 4px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  box-shadow: none;
+}
+.tip::before { display:none; }
+</style>
+</body>
+</html>`;
+
+  return (
+    <View style={s.mapCard}>
+      <iframe
+        srcDoc={html}
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+        sandbox="allow-scripts"
+      />
+    </View>
+  );
 }
 
-// ─── Pulse ring (shared) ──────────────────────────────────────────────────
+// ─── Route visual strip ───────────────────────────────────────────────────
+
+function RouteVisual({ from, to, dist, eta }) {
+  const fade = useRef(new Animated.Value(0)).current;
+  const slide = useRef(new Animated.Value(10)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fade, { toValue: 1, duration: 320, useNativeDriver: false }),
+      Animated.timing(slide, { toValue: 0, duration: 320, useNativeDriver: false }),
+    ]).start();
+  }, []);
+  const short = (s) => (s.length > 16 ? s.slice(0, 14) + '…' : s);
+  return (
+    <Animated.View style={[s.routeCard, { opacity: fade, transform: [{ translateY: slide }] }]}>
+      <View style={s.routeBar}>
+        <View style={s.routeEndpoint}>
+          <View style={[s.routeDotPin, { backgroundColor: LIME, shadowColor: LIME }]} />
+          <Text style={s.routePinLbl} numberOfLines={1}>{short(from)}</Text>
+        </View>
+        <View style={s.routeTrack}>
+          <View style={s.routeTrackLine} />
+          <View style={s.distChip}>
+            <Text style={s.distChipTxt}>{dist} km</Text>
+          </View>
+          <View style={s.routeTrackLine} />
+        </View>
+        <View style={s.routeEndpoint}>
+          <View style={[s.routeDotPin, { backgroundColor: '#ef4444', shadowColor: '#ef4444' }]} />
+          <Text style={s.routePinLbl} numberOfLines={1}>{short(to)}</Text>
+        </View>
+      </View>
+      <View style={s.routeStats}>
+        <View style={s.routeStat}>
+          <Ionicons name="navigate-outline" size={13} color={GREY} />
+          <Text style={s.routeStatTxt}>{dist} km</Text>
+        </View>
+        <View style={s.routeStatSep} />
+        <View style={s.routeStat}>
+          <Ionicons name="time-outline" size={13} color={GREY} />
+          <Text style={s.routeStatTxt}>~{eta} min</Text>
+        </View>
+        <View style={s.routeStatSep} />
+        <View style={s.routeStat}>
+          <Ionicons name="speedometer-outline" size={13} color={GREY} />
+          <Text style={s.routeStatTxt}>R{RATE}/km</Text>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ─── Pulse ring ───────────────────────────────────────────────────────────
 
 function PulseRing({ delay, size }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -102,72 +240,7 @@ function PulseRing({ delay, size }) {
   );
 }
 
-// ─── Route visual ─────────────────────────────────────────────────────────
-
-function RouteVisual({ from, to, dist, eta }) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(12)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: false }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 350, useNativeDriver: false }),
-    ]).start();
-  }, []);
-
-  const fromShort = from.length > 16 ? from.slice(0, 14) + '…' : from;
-  const toShort = to.length > 16 ? to.slice(0, 14) + '…' : to;
-
-  return (
-    <Animated.View style={[s.routeCard, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-
-      {/* Route bar */}
-      <View style={s.routeBar}>
-        {/* From pin */}
-        <View style={s.routeEndpoint}>
-          <View style={[s.routeDot, { backgroundColor: LIME, shadowColor: LIME, shadowRadius: 8, shadowOpacity: 0.6, elevation: 4 }]} />
-          <Text style={s.routeEndpointLbl} numberOfLines={1}>{fromShort}</Text>
-        </View>
-
-        {/* Line + distance chip */}
-        <View style={s.routeTrack}>
-          <View style={s.routeTrackLine} />
-          <View style={s.distChip}>
-            <Text style={s.distChipTxt}>{dist} km</Text>
-          </View>
-          <View style={s.routeTrackLine} />
-        </View>
-
-        {/* To pin */}
-        <View style={s.routeEndpoint}>
-          <View style={[s.routeDot, { backgroundColor: '#ef4444', shadowColor: '#ef4444', shadowRadius: 8, shadowOpacity: 0.5, elevation: 4 }]} />
-          <Text style={s.routeEndpointLbl} numberOfLines={1}>{toShort}</Text>
-        </View>
-      </View>
-
-      {/* Stats row */}
-      <View style={s.routeStats}>
-        <View style={s.routeStat}>
-          <Ionicons name="navigate-outline" size={13} color={GREY} />
-          <Text style={s.routeStatTxt}>{dist} km</Text>
-        </View>
-        <View style={s.routeStatSep} />
-        <View style={s.routeStat}>
-          <Ionicons name="time-outline" size={13} color={GREY} />
-          <Text style={s.routeStatTxt}>~{eta} min</Text>
-        </View>
-        <View style={s.routeStatSep} />
-        <View style={s.routeStat}>
-          <Ionicons name="speedometer-outline" size={13} color={GREY} />
-          <Text style={s.routeStatTxt}>R{RATE}/km</Text>
-        </View>
-      </View>
-
-    </Animated.View>
-  );
-}
-
-// ─── Screen ───────────────────────────────────────────────────────────────
+// ─── Main screen ──────────────────────────────────────────────────────────
 
 export default function CustomerScreen({ navigation }) {
   const [screen, setScreen] = useState('home');
@@ -177,6 +250,9 @@ export default function CustomerScreen({ navigation }) {
   const [price, setPrice] = useState(null);
   const [dist, setDist] = useState(null);
   const [eta, setEta] = useState(null);
+  const [fromCoords, setFromCoords] = useState(null);
+  const [toCoords, setToCoords] = useState(null);
+  const [routeCoords, setRouteCoords] = useState(null);
   const [calculating, setCalculating] = useState(false);
   const [trackEta, setTrackEta] = useState(12);
   const [loading, setLoading] = useState(false);
@@ -199,21 +275,26 @@ export default function CustomerScreen({ navigation }) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (f.length < 3 || t.length < 3) {
       setDist(null); setPrice(null); setEta(null);
+      setFromCoords(null); setToCoords(null); setRouteCoords(null);
       return;
     }
     setCalculating(true);
     setDist(null); setPrice(null); setEta(null);
+    setFromCoords(null); setToCoords(null); setRouteCoords(null);
     debounceRef.current = setTimeout(async () => {
-      const km = await getDistanceKm(f, t);
-      if (km !== null) {
-        const e = etaMin(km);
-        const p = Math.round((BASE + km * RATE) * (size === 'large' ? 1.4 : 1));
-        setDist(km);
-        setEta(e);
+      const [a, b] = await Promise.all([geocode(f), geocode(t)]);
+      if (a && b) {
+        const route = await getRoute(a, b);
+        const p = Math.round((BASE + route.distKm * RATE) * (size === 'large' ? 1.4 : 1));
+        setFromCoords(a);
+        setToCoords(b);
+        setRouteCoords(route.coords);
+        setDist(route.distKm);
+        setEta(route.durationMin);
         setPrice(p);
       }
       setCalculating(false);
-    }, 600);
+    }, 700);
   };
 
   const handleSend = async () => {
@@ -239,6 +320,7 @@ export default function CustomerScreen({ navigation }) {
     clearInterval(etaRef.current);
     setScreen('home');
     setFrom(''); setTo(''); setPrice(null); setDist(null); setEta(null);
+    setFromCoords(null); setToCoords(null); setRouteCoords(null);
     setPackageSize('small');
   };
 
@@ -256,7 +338,7 @@ export default function CustomerScreen({ navigation }) {
     />
   );
 
-  // ── HOME ────────────────────────────────────────────────────────────────
+  // ── HOME ──────────────────────────────────────────────────────────────
   if (screen === 'home') {
     return (
       <View style={s.container}>
@@ -284,8 +366,9 @@ export default function CustomerScreen({ navigation }) {
     );
   }
 
-  // ── BOOKING ─────────────────────────────────────────────────────────────
+  // ── BOOKING ───────────────────────────────────────────────────────────
   if (screen === 'booking') {
+    const routeReady = !calculating && dist !== null && routeCoords !== null;
     return (
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent}>
         <StatusBar style="light" />
@@ -293,7 +376,7 @@ export default function CustomerScreen({ navigation }) {
 
         <Text style={s.pageTitle}>Where{'\n'}<Text style={s.pageTitleAccent}>to?</Text></Text>
 
-        {/* Address card */}
+        {/* Address inputs */}
         <View style={s.addrCard}>
           <View style={s.addrRow}>
             <View style={[s.addrDot, { backgroundColor: LIME }]} />
@@ -328,15 +411,26 @@ export default function CustomerScreen({ navigation }) {
           </View>
         </View>
 
-        {/* Route visual */}
+        {/* Calculating indicator */}
         {calculating && (
           <View style={s.calcRow}>
             <ActivityIndicator size="small" color={LIME} />
             <Text style={s.calcTxt}>Calculating route…</Text>
           </View>
         )}
-        {!calculating && dist !== null && (
-          <RouteVisual from={from} to={to} dist={dist} eta={eta} />
+
+        {/* Route strip + map */}
+        {routeReady && (
+          <>
+            <RouteVisual from={from} to={to} dist={dist} eta={eta} />
+            <RouteMap
+              fromCoords={fromCoords}
+              toCoords={toCoords}
+              routeCoords={routeCoords}
+              fromLabel={from}
+              toLabel={to}
+            />
+          </>
         )}
 
         {/* Package size */}
@@ -391,7 +485,7 @@ export default function CustomerScreen({ navigation }) {
     );
   }
 
-  // ── TRACKING ─────────────────────────────────────────────────────────────
+  // ── TRACKING ──────────────────────────────────────────────────────────
   if (screen === 'tracking') {
     const delivered = trackEta === 0;
     return (
@@ -400,6 +494,7 @@ export default function CustomerScreen({ navigation }) {
         {logoMenu}
         <View style={s.trackContent}>
           <Text style={s.trackStatus}>{delivered ? 'Delivered' : 'On the Way'}</Text>
+
           <View style={s.trackBtnWrap}>
             {!delivered && <PulseRing delay={0} size={240} />}
             {!delivered && <PulseRing delay={800} size={240} />}
@@ -409,7 +504,6 @@ export default function CustomerScreen({ navigation }) {
             </View>
           </View>
 
-          {/* Route summary in tracking */}
           {dist && (
             <View style={s.trackRoute}>
               <View style={s.trackRouteRow}>
@@ -457,7 +551,6 @@ const s = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: BG },
   scrollContent: { paddingHorizontal: 24, paddingTop: 100, paddingBottom: 60 },
 
-  // Home
   homeContent: { flex: 1, paddingHorizontal: 28, justifyContent: 'space-between', paddingTop: 100, paddingBottom: 48 },
   homeTitle: { fontSize: 64, fontWeight: '900', color: '#fff', letterSpacing: -1, lineHeight: 68 },
   homeTitleAccent: { fontSize: 64, fontWeight: '900', color: LIME, letterSpacing: -1, lineHeight: 68 },
@@ -472,7 +565,6 @@ const s = StyleSheet.create({
   ordersLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
   ordersLinkTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
 
-  // Booking
   pageTitle: { fontSize: 52, fontWeight: '900', color: '#fff', letterSpacing: -1, lineHeight: 56, marginBottom: 28 },
   pageTitleAccent: { color: LIME },
   addrCard: { backgroundColor: SURFACE, borderRadius: 22, overflow: 'hidden', marginBottom: 16 },
@@ -484,35 +576,40 @@ const s = StyleSheet.create({
   addrSep: { paddingLeft: 44, paddingRight: 20 },
   addrLine: { height: 1, backgroundColor: BORDER },
 
-  // Calculating indicator
   calcRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, paddingHorizontal: 4 },
   calcTxt: { fontSize: 13, color: GREY, fontWeight: '600' },
 
-  // Route visual
   routeCard: {
-    backgroundColor: SURFACE, borderRadius: 20,
-    padding: 20, marginBottom: 20,
+    backgroundColor: SURFACE, borderRadius: 20, padding: 20, marginBottom: 12,
     borderWidth: 1, borderColor: LIME + '20',
   },
   routeBar: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  routeEndpoint: { alignItems: 'center', gap: 6, width: 70 },
-  routeDot: { width: 12, height: 12, borderRadius: 6 },
-  routeEndpointLbl: { fontSize: 11, fontWeight: '700', color: '#aaa', textAlign: 'center' },
+  routeEndpoint: { alignItems: 'center', gap: 6, width: 72 },
+  routeDotPin: {
+    width: 12, height: 12, borderRadius: 6,
+    shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.7, shadowRadius: 6, elevation: 4,
+  },
+  routePinLbl: { fontSize: 11, fontWeight: '700', color: '#aaa', textAlign: 'center' },
   routeTrack: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   routeTrackLine: { flex: 1, height: 1.5, backgroundColor: '#222' },
   distChip: {
     backgroundColor: 'rgba(200,240,0,0.12)',
-    borderWidth: 1, borderColor: 'rgba(200,240,0,0.2)',
-    borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4,
-    marginHorizontal: 8,
+    borderWidth: 1, borderColor: 'rgba(200,240,0,0.22)',
+    borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, marginHorizontal: 8,
   },
   distChipTxt: { fontSize: 13, fontWeight: '900', color: LIME },
-  routeStats: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 0 },
-  routeStat: { flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1, justifyContent: 'center' },
+  routeStats: { flexDirection: 'row', alignItems: 'center' },
+  routeStat: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5, justifyContent: 'center' },
   routeStatTxt: { fontSize: 13, fontWeight: '700', color: GREY },
   routeStatSep: { width: 1, height: 14, backgroundColor: '#222' },
 
-  // Package size
+  // Map
+  mapCard: {
+    height: 240, borderRadius: 20, overflow: 'hidden',
+    marginBottom: 20,
+    borderWidth: 1, borderColor: '#1a1a1a',
+  },
+
   sectionLabel: { fontSize: 11, fontWeight: '700', color: GREY, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 },
   sizeRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
   sizeCard: {
@@ -530,7 +627,6 @@ const s = StyleSheet.create({
   },
   sizeCheckMark: { fontSize: 10, fontWeight: '900', color: BG },
 
-  // Price
   priceCard: {
     backgroundColor: 'rgba(200,240,0,0.07)',
     borderWidth: 1, borderColor: 'rgba(200,240,0,0.15)',
@@ -553,7 +649,6 @@ const s = StyleSheet.create({
   backLink: { alignItems: 'center', paddingVertical: 8 },
   backLinkTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
 
-  // Tracking
   trackContent: { flex: 1, paddingHorizontal: 24, paddingTop: 100, paddingBottom: 40, alignItems: 'center', justifyContent: 'space-between' },
   trackStatus: { fontSize: 15, fontWeight: '700', color: GREY, letterSpacing: 2, textTransform: 'uppercase', alignSelf: 'flex-start' },
   trackBtnWrap: { width: 240, height: 240, alignItems: 'center', justifyContent: 'center' },
@@ -566,8 +661,6 @@ const s = StyleSheet.create({
   trackCircleDone: { shadowOpacity: 0.3 },
   trackEta: { fontSize: 72, fontWeight: '900', color: BG, letterSpacing: -2 },
   trackEtaUnit: { fontSize: 14, fontWeight: '800', color: 'rgba(0,0,0,0.4)', marginTop: -8, letterSpacing: 1 },
-
-  // Tracking route summary
   trackRoute: { width: '100%', backgroundColor: SURFACE, borderRadius: 18, padding: 16 },
   trackRouteRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   trackDot: { width: 8, height: 8, borderRadius: 4 },
@@ -575,28 +668,20 @@ const s = StyleSheet.create({
   trackConnector: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 3.5, paddingVertical: 6 },
   trackConnLine: { flex: 1, height: 1, backgroundColor: '#222' },
   trackDistLabel: { fontSize: 11, fontWeight: '700', color: GREY },
-
   driverCard: {
     width: '100%', backgroundColor: SURFACE, borderRadius: 22, padding: 18,
     flexDirection: 'row', alignItems: 'center', gap: 14,
   },
-  driverAvatar: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: LIME, alignItems: 'center', justifyContent: 'center',
-  },
+  driverAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: LIME, alignItems: 'center', justifyContent: 'center' },
   driverAvatarTxt: { fontSize: 16, fontWeight: '900', color: BG },
   driverInfo: { flex: 1 },
   driverName: { fontSize: 16, fontWeight: '800', color: '#fff', marginBottom: 3 },
   driverBike: { fontSize: 12, color: GREY },
-  driverRating: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: SURFACE2, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5,
-  },
+  driverRating: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: SURFACE2, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 },
   driverRatingTxt: { fontSize: 13, fontWeight: '800', color: '#fff' },
   cancelBtn: { paddingVertical: 12 },
   cancelTxt: { fontSize: 14, color: MUTED, fontWeight: '600' },
 
-  // Toast
   toast: {
     position: 'absolute', bottom: 40, alignSelf: 'center',
     backgroundColor: '#1a1a1a', borderRadius: 24,
