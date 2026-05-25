@@ -282,7 +282,16 @@ export default function RiderScreen({ navigation }) {
         setJobs(prev => [incoming, ...prev]);
         playAlert();
         setNewJobAlert(incoming);
-      }).subscribe();
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'orders',
+      }, (p) => {
+        // Remove order from available list the moment it's no longer pending
+        if (p.new.status !== 'pending') {
+          setJobs(prev => prev.filter(j => j.id !== p.new.id));
+        }
+      })
+      .subscribe();
     return () => sub.current?.unsubscribe();
   }, [online]);
 
@@ -412,6 +421,7 @@ export default function RiderScreen({ navigation }) {
     setPinInput('');
     setPinError(false);
     await loadEarnings(userId);
+    fetchOrders(); // refresh available jobs — clears any stale entries
     setView('summary');
   };
 
