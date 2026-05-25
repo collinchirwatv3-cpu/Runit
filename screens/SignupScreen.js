@@ -42,16 +42,41 @@ export default function SignupScreen({ navigation }) {
     }
     setLoading(true);
     try {
-      const { session } = await signUp({ email, password, name, phone, role });
-      if (!session) {
-        Alert.alert('Check your email', 'Confirm your email then sign in.', [
-          { text: 'OK', onPress: () => navigation.navigate('Login') },
-        ]);
+      const { session, user } = await signUp({ email, password, name, phone, role });
+
+      // Session exists → email confirmation is OFF, user is in immediately
+      if (session) {
+        navigation.reset({ index: 0, routes: [{ name: roleToRoute(role) }] });
         return;
       }
-      navigation.reset({ index: 0, routes: [{ name: roleToRoute(role) }] });
+
+      // User created but no session → email confirmation is ON
+      if (user) {
+        Alert.alert(
+          'Almost there!',
+          'We sent a confirmation link to ' + email + '.\n\nClick it then come back and sign in.',
+          [{ text: 'Go to Sign In', onPress: () => navigation.navigate('Login') }]
+        );
+        return;
+      }
+
+      // Neither — something unexpected
+      Alert.alert('Something went wrong', 'Please try again or contact support.');
     } catch (err) {
-      Alert.alert('Error', err.message);
+      // Map common Supabase error messages to friendly text
+      const msg = err.message || '';
+      if (msg.includes('already registered') || msg.includes('already been registered')) {
+        Alert.alert('Account exists', 'An account with this email already exists. Try signing in instead.', [
+          { text: 'Sign In', onPress: () => navigation.navigate('Login') },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+      } else if (msg.includes('invalid') && msg.includes('email')) {
+        Alert.alert('Invalid email', 'Please enter a valid email address.');
+      } else if (msg.includes('rate limit') || msg.includes('too many')) {
+        Alert.alert('Too many attempts', 'Please wait a few minutes before trying again.');
+      } else {
+        Alert.alert('Sign up failed', msg || 'Something went wrong. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
