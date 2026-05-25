@@ -504,7 +504,7 @@ export default function RiderScreen({ navigation }) {
     };
 
     broadcast();
-    locationIntervalRef.current = setInterval(broadcast, 12000);
+    locationIntervalRef.current = setInterval(broadcast, 5000);
   };
 
   const stopLocationBroadcast = () => {

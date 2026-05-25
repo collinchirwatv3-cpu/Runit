@@ -113,7 +113,7 @@ L.marker(A,{icon:iconA}).bindTooltip('${fromLabel.replace(/'/g,"\\'")}',{permane
 L.marker(B,{icon:iconB}).bindTooltip('${toLabel.replace(/'/g,"\\'")}',{permanent:true,direction:'bottom',className:'tip',offset:[0,10]}).addTo(map);
 map.fitBounds(L.latLngBounds([A,B]).pad(0.35));
 var riderMarker=null;
-window.updateRider=function(lat,lon){if(riderMarker){riderMarker.setLatLng([lat,lon]);}else{riderMarker=L.marker([lat,lon],{icon:iconR}).bindTooltip('Rider',{permanent:true,direction:'top',className:'tip',offset:[0,-12]}).addTo(map);}};
+window.updateRider=function(lat,lon){if(riderMarker){var el=riderMarker.getElement();if(el){el.style.transition='transform 4500ms linear';}riderMarker.setLatLng([lat,lon]);}else{riderMarker=L.marker([lat,lon],{icon:iconR}).bindTooltip('On the way 🏍️',{permanent:true,direction:'top',className:'tip',offset:[0,-14]}).addTo(map);}};
 window.addEventListener('message',function(e){if(e.data&&e.data.type==='updateRider'){window.updateRider(e.data.lat,e.data.lon);}});
 </script></body></html>`;
 }
@@ -663,7 +663,7 @@ export default function CustomerScreen({ navigation }) {
               ) : onTheWay && eta ? (
                 <><Text style={s.trackEta}>{eta}</Text><Text style={s.trackEtaUnit}>est. min</Text></>
               ) : (
-                <ActivityIndicator color={BG} size="large" />
+                <Text style={{ fontSize: 36 }}>🏍️</Text>
               )}
             </View>
           </View>
