@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
   StyleSheet, Text, View, TouchableOpacity,
-  Animated, TextInput, ScrollView, Alert, ActivityIndicator, Platform,
+  Animated, TextInput, ScrollView, Alert, ActivityIndicator, Platform, Share,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -690,7 +690,11 @@ export default function CustomerScreen({ navigation }) {
           {/* 3-digit PIN — shown until delivered */}
           {!delivered && deliveryPin && (
             <View style={s.pinCard}>
-              <Text style={s.pinCardLabel}>YOUR DELIVERY PIN</Text>
+              <Text style={s.pinCardLabel}>RECIPIENT PIN</Text>
+              <Text style={s.pinCardHint}>
+                Share this with the person <Text style={{ color: '#fff', fontWeight: '800' }}>receiving</Text> the package.{'\n'}
+                The rider will ask them to enter it on delivery.
+              </Text>
               <View style={s.pinBoxRow}>
                 {deliveryPin.split('').map((digit, i) => (
                   <View key={i} style={s.pinBox}>
@@ -698,7 +702,17 @@ export default function CustomerScreen({ navigation }) {
                   </View>
                 ))}
               </View>
-              <Text style={s.pinCardSub}>Give this to the rider to confirm handoff</Text>
+              <TouchableOpacity
+                style={s.sharePinBtn}
+                activeOpacity={0.8}
+                onPress={() => Share.share({
+                  message: `Your RunIt delivery PIN is: ${deliveryPin}\n\nWhen the rider arrives, they'll ask you to enter this on their phone to confirm receipt.`,
+                  title: 'RunIt Delivery PIN',
+                })}
+              >
+                <Ionicons name="share-social-outline" size={16} color={BG} />
+                <Text style={s.sharePinTxt}>Share PIN with Recipient</Text>
+              </TouchableOpacity>
             </View>
           )}
 
@@ -918,6 +932,13 @@ const s = StyleSheet.create({
   },
   pinDigit: { fontSize: 40, fontWeight: '900', color: LIME, letterSpacing: -1 },
   pinCardSub: { fontSize: 12, color: GREY, fontWeight: '500', textAlign: 'center' },
+  pinCardHint: { fontSize: 13, color: GREY, textAlign: 'center', marginBottom: 16, lineHeight: 20 },
+  sharePinBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: LIME, borderRadius: 14, height: 46, marginTop: 16,
+    width: '100%',
+  },
+  sharePinTxt: { fontSize: 14, fontWeight: '900', color: BG },
 
   trackRoute: { backgroundColor: SURFACE, borderRadius: 18, padding: 16, marginBottom: 16 },
   trackRouteRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
