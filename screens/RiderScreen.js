@@ -448,7 +448,7 @@ export default function RiderScreen({ navigation }) {
     since.setHours(0, 0, 0, 0);
     const { data } = await supabase
       .from('orders')
-      .select('price, dist_km, from_address, to_address, created_at')
+      .select('price, tip, dist_km, from_address, to_address, created_at')
       .eq('rider_id', id)
       .eq('status', 'delivered')
       .gte('created_at', since.toISOString())
@@ -459,7 +459,7 @@ export default function RiderScreen({ navigation }) {
     const week = [0, 0, 0, 0, 0, 0, 0]; // Mon=0 … Sun=6
     data.forEach(o => {
       const d = new Date(o.created_at);
-      const price = parseFloat(o.price) || 0;
+      const price = (parseFloat(o.price) || 0) + (parseFloat(o.tip) || 0);
       const dow = (d.getDay() + 6) % 7;
       week[dow] += price;
       if (d >= today) { todayTotal += price; todayTrips++; }

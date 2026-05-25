@@ -225,8 +225,9 @@ export default function CustomerScreen({ navigation }) {
   const [to, setTo] = useState('');
   const [packageSize, setPackageSize] = useState('small');
   const [notes, setNotes] = useState('');
-  const [tip, setTip] = useState(0);
-  const [customTip, setCustomTip] = useState('');
+  const [postTip, setPostTip] = useState(0);
+  const [customPostTip, setCustomPostTip] = useState('');
+  const [tipSubmitted, setTipSubmitted] = useState(false);
   const [price, setPrice] = useState(null);
   const [dist, setDist] = useState(null);
   const [eta, setEta] = useState(null);
@@ -327,24 +328,31 @@ export default function CustomerScreen({ navigation }) {
     }
   };
 
+  const submitTip = async () => {
+    const amt = customPostTip ? parseInt(customPostTip, 10) || 0 : postTip;
+    if (!activeOrderId || amt <= 0) { setTipSubmitted(true); return; }
+    await supabase.from('orders').update({ tip: amt }).eq('id', activeOrderId);
+    setTipSubmitted(true);
+    showToast(`R${amt} tip sent — thank you! 🙏`);
+  };
+
   const handleSend = async () => {
     if (!from || !to) { Alert.alert('Missing Info', 'Enter pickup and drop-off'); return; }
     setLoading(true);
 
     const pin = Math.floor(100 + Math.random() * 900).toString();
-    const tipAmt = customTip ? parseInt(customTip, 10) || 0 : tip;
 
     const { data: insertData, error } = await supabase
       .from('orders')
       .insert([{
         from_address: from, to_address: to,
-        price: (price || 0) + tipAmt,
+        price: price || 0,
         status: 'pending', user_id: userId,
         package_size: packageSize,
         dist_km: dist,
         delivery_pin: pin,
         notes: notes.trim() || null,
-        tip: tipAmt,
+        tip: 0,
         from_lat: fromCoords?.lat || null,
         from_lon: fromCoords?.lon || null,
         to_lat: toCoords?.lat || null,
@@ -419,7 +427,8 @@ export default function CustomerScreen({ navigation }) {
     setFrom(''); setTo(''); setPrice(null); setDist(null); setEta(null);
     setFromCoords(null); setToCoords(null); setRouteCoords(null);
     setFromConfirmed(false); setToConfirmed(false);
-    setPackageSize('small'); setNotes(''); setTip(0); setCustomTip('');
+    setPackageSize('small'); setNotes('');
+    setPostTip(0); setCustomPostTip(''); setTipSubmitted(false);
     setActiveOrderId(null); setOrderStatus('pending');
     setDeliveryPin(null); setRiderLocation(null);
   };
@@ -465,8 +474,6 @@ export default function CustomerScreen({ navigation }) {
   // ── BOOKING ───────────────────────────────────────────────────────────
   if (screen === 'booking') {
     const routeReady = !calculating && dist !== null && routeCoords !== null;
-    const tipAmt = customTip ? parseInt(customTip, 10) || 0 : tip;
-    const totalPrice = price !== null ? price + tipAmt : null;
 
     return (
       <View style={s.container}>
@@ -605,47 +612,17 @@ export default function CustomerScreen({ navigation }) {
             <Text style={s.charCount}>{notes.length}/160</Text>
           </View>
 
-          {/* Tip + Price — only shown when price is calculated */}
+          {/* Price card — only shown when price is calculated */}
           {price !== null && (
-            <>
-              <View style={s.priceCard}>
-                <View>
-                  <Text style={s.priceNum}>R {totalPrice}</Text>
-                  <Text style={s.priceMeta}>
-                    R{price} delivery{tipAmt > 0 ? ` + R${tipAmt} tip` : ''}
-                    {packageSize === 'large' ? ' · large ×1.4' : ''}
-                  </Text>
-                </View>
-                <View style={s.bestRate}><Text style={s.bestRateTxt}>Best Rate</Text></View>
+            <View style={s.priceCard}>
+              <View>
+                <Text style={s.priceNum}>R {price}</Text>
+                <Text style={s.priceMeta}>
+                  Delivery fare{packageSize === 'large' ? ' · large ×1.4' : ''}
+                </Text>
               </View>
-
-              <Text style={s.sectionLabel}>Tip your rider <Text style={{ color: MUTED, textTransform: 'none', letterSpacing: 0, fontSize: 10 }}>(optional)</Text></Text>
-              <View style={s.tipRow}>
-                {[0, 5, 10, 20].map(amt => (
-                  <TouchableOpacity
-                    key={amt}
-                    style={[s.tipBtn, tip === amt && !customTip && s.tipBtnActive]}
-                    onPress={() => { setTip(amt); setCustomTip(''); }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[s.tipBtnTxt, tip === amt && !customTip && s.tipBtnTxtActive]}>
-                      {amt === 0 ? 'None' : `R${amt}`}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <View style={s.customTipWrap}>
-                <Ionicons name="create-outline" size={15} color={GREY} style={{ marginTop: 2 }} />
-                <TextInput
-                  style={s.customTipInput}
-                  placeholder="Custom amount"
-                  placeholderTextColor={MUTED}
-                  keyboardType="numeric"
-                  value={customTip}
-                  onChangeText={v => { setCustomTip(v.replace(/\D/g, '')); setTip(-1); }}
-                />
-              </View>
-            </>
+              <View style={s.bestRate}><Text style={s.bestRateTxt}>Best Rate</Text></View>
+            </View>
           )}
 
           <TouchableOpacity
@@ -785,6 +762,56 @@ export default function CustomerScreen({ navigation }) {
             </View>
           )}
 
+          {/* Post-delivery tip card */}
+          {delivered && (
+            tipSubmitted ? (
+              <View style={s.tipCard}>
+                <Ionicons name="heart" size={22} color={LIME} />
+                <Text style={s.tipThanksTxt}>
+                  {postTip > 0 || customPostTip
+                    ? `R${customPostTip || postTip} tip sent — thanks for riding with RunIt!`
+                    : 'Thanks for using RunIt!'}
+                </Text>
+              </View>
+            ) : (
+              <View style={s.tipCard}>
+                <Text style={s.tipCardLabel}>TIP YOUR RIDER</Text>
+                <Text style={s.tipCardHint}>How was your delivery?</Text>
+                <View style={s.tipRow}>
+                  {[0, 10, 20, 50].map(amt => (
+                    <TouchableOpacity
+                      key={amt}
+                      style={[s.tipBtn, postTip === amt && !customPostTip && s.tipBtnActive]}
+                      onPress={() => { setPostTip(amt); setCustomPostTip(''); }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[s.tipBtnTxt, postTip === amt && !customPostTip && s.tipBtnTxtActive]}>
+                        {amt === 0 ? 'No tip' : `R${amt}`}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={s.customTipWrap}>
+                  <Ionicons name="create-outline" size={15} color={GREY} style={{ marginTop: 2 }} />
+                  <TextInput
+                    style={s.customTipInput}
+                    placeholder="Custom amount"
+                    placeholderTextColor={MUTED}
+                    keyboardType="numeric"
+                    value={customPostTip}
+                    onChangeText={v => { setCustomPostTip(v.replace(/\D/g, '')); setPostTip(-1); }}
+                  />
+                </View>
+                <TouchableOpacity style={s.tipSubmitBtn} onPress={submitTip} activeOpacity={0.85}>
+                  <Ionicons name="gift-outline" size={16} color={BG} />
+                  <Text style={s.tipSubmitTxt}>
+                    {postTip > 0 || customPostTip ? `Send R${customPostTip || postTip} Tip` : 'Skip Tip'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )
+          )}
+
           {/* Actions */}
           <View style={{ width: '100%', paddingBottom: 20 }}>
             {!delivered && finding && (
@@ -792,7 +819,7 @@ export default function CustomerScreen({ navigation }) {
                 <Text style={s.cancelTxt}>Cancel Order</Text>
               </TouchableOpacity>
             )}
-            {delivered && (
+            {delivered && tipSubmitted && (
               <TouchableOpacity onPress={newOrder} style={[s.primaryBtn, { marginTop: 8 }]}>
                 <Text style={s.primaryBtnTxt}>Place New Order</Text>
               </TouchableOpacity>
@@ -893,13 +920,27 @@ const s = StyleSheet.create({
   bestRate: { backgroundColor: LIME, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7 },
   bestRateTxt: { fontSize: 12, fontWeight: '900', color: BG },
 
-  tipRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  tipBtn: { flex: 1, backgroundColor: SURFACE, borderRadius: 14, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#1a1a1a' },
+  // Post-delivery tip card
+  tipCard: {
+    width: '100%', backgroundColor: SURFACE, borderRadius: 20, padding: 20,
+    alignItems: 'center', marginBottom: 16,
+    borderWidth: 1, borderColor: '#1e1e1e',
+  },
+  tipCardLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 4 },
+  tipCardHint: { fontSize: 13, color: GREY, marginBottom: 16 },
+  tipThanksTxt: { fontSize: 14, color: '#fff', fontWeight: '700', textAlign: 'center', marginTop: 10 },
+  tipRow: { flexDirection: 'row', gap: 8, marginBottom: 12, width: '100%' },
+  tipBtn: { flex: 1, backgroundColor: '#181818', borderRadius: 12, height: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#222' },
   tipBtnActive: { borderColor: LIME, backgroundColor: 'rgba(200,240,0,0.08)' },
-  tipBtnTxt: { fontSize: 14, fontWeight: '800', color: GREY },
+  tipBtnTxt: { fontSize: 13, fontWeight: '800', color: GREY },
   tipBtnTxtActive: { color: LIME },
-  customTipWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: SURFACE, borderRadius: 14, paddingHorizontal: 14, height: 44, marginBottom: 24 },
+  customTipWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#181818', borderRadius: 12, paddingHorizontal: 14, height: 42, marginBottom: 14, width: '100%', borderWidth: 1, borderColor: '#222' },
   customTipInput: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '700', outlineStyle: 'none' },
+  tipSubmitBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: LIME, borderRadius: 14, height: 46, width: '100%',
+  },
+  tipSubmitTxt: { fontSize: 14, fontWeight: '900', color: BG },
 
   primaryBtn: {
     backgroundColor: LIME, borderRadius: 16, height: 58,
