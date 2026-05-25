@@ -4,7 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { signOut } from '../auth';
-import LogoMenu from './LogoMenu';
+import TopBar from './TopBar';
+import BottomBar from './BottomBar';
 
 const LIME = '#c8f000';
 const BG = '#080808';
@@ -33,7 +34,6 @@ export default function ProfileScreen({ navigation }) {
   const name = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
   const email = user?.email || '';
   const phone = user?.user_metadata?.phone || '';
-  const role = user?.user_metadata?.role || 'customer';
   const initials = name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2);
   const memberSince = user?.created_at
     ? new Date(user.created_at).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })
@@ -47,22 +47,14 @@ export default function ProfileScreen({ navigation }) {
     );
   }
 
+  const role = user?.user_metadata?.role || 'customer';
+
   return (
     <View style={s.container}>
       <StatusBar style="light" />
-      <LogoMenu
-        onSignOut={handleSignOut}
-        onOrders={() => navigation.navigate('Orders')}
-        onProfile={() => {}}
-        onSettings={() => navigation.navigate('Settings')}
-      />
-
+      <TopBar />
       <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backRow}>
-          <Ionicons name="arrow-back" size={18} color={GREY} />
-          <Text style={s.backTxt}>Back</Text>
-        </TouchableOpacity>
+        <View style={s.backRow} />
 
         <Text style={s.headline}>My{'\n'}<Text style={s.headlineAccent}>Profile.</Text></Text>
 
@@ -102,6 +94,15 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
 
       </ScrollView>
+      <BottomBar
+        active="profile"
+        role={role}
+        onPress={(tabId) => {
+          if (tabId === 'orders') navigation.navigate('Orders');
+          else if (tabId === 'settings') navigation.navigate('Settings');
+          else if (tabId === 'home') navigation.goBack();
+        }}
+      />
     </View>
   );
 }
@@ -109,9 +110,9 @@ export default function ProfileScreen({ navigation }) {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 24, paddingTop: 100, paddingBottom: 60 },
+  content: { paddingHorizontal: 24, paddingTop: 90, paddingBottom: 100 },
 
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 28 },
+  backRow: { height: 8, marginBottom: 20 },
   backTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
 
   headline: {

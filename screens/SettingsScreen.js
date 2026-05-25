@@ -7,7 +7,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { signOut } from '../auth';
-import LogoMenu from './LogoMenu';
+import TopBar from './TopBar';
+import BottomBar from './BottomBar';
 
 const LIME = '#c8f000';
 const BG = '#080808';
@@ -217,20 +218,8 @@ export default function SettingsScreen({ navigation }) {
   return (
     <View style={s.container}>
       <StatusBar style="light" />
-      <LogoMenu
-        onSignOut={handleSignOut}
-        onOrders={() => navigation.navigate('Orders')}
-        onProfile={() => navigation.navigate('Profile')}
-        onSettings={() => {}}
-      />
-
+      <TopBar />
       <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backRow}>
-          <Ionicons name="arrow-back" size={18} color={GREY} />
-          <Text style={s.backTxt}>Back</Text>
-        </TouchableOpacity>
-
         <Text style={s.headline}>Settings.</Text>
 
         {sections.map((section, si) => (
@@ -297,6 +286,11 @@ export default function SettingsScreen({ navigation }) {
       <ChangePasswordSheet visible={showChangePass} onClose={() => setShowChangePass(false)} />
       <InfoSheet visible={showPrivacy} onClose={() => setShowPrivacy(false)} title="Privacy Policy" body={PRIVACY_BODY} />
       <InfoSheet visible={showTerms}   onClose={() => setShowTerms(false)}   title="Terms of Service" body={TERMS_BODY} />
+      <BottomBar active="settings" role="customer" onPress={(tabId) => {
+        if (tabId === 'home') navigation.navigate('Customer');
+        else if (tabId === 'orders') navigation.navigate('Orders');
+        else if (tabId === 'profile') navigation.navigate('Profile');
+      }} />
     </View>
   );
 }
@@ -304,10 +298,8 @@ export default function SettingsScreen({ navigation }) {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 24, paddingTop: 100, paddingBottom: 60 },
+  content: { paddingHorizontal: 24, paddingTop: 90, paddingBottom: 100 },
 
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 28 },
-  backTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
   headline: { fontSize: 52, fontWeight: '900', color: '#fff', letterSpacing: -1, marginBottom: 32 },
 
   section: { marginBottom: 24 },

@@ -4,7 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { signOut } from '../auth';
-import LogoMenu from './LogoMenu';
+import TopBar from './TopBar';
+import BottomBar from './BottomBar';
 
 const LIME = '#c8f000';
 const BG = '#080808';
@@ -70,19 +71,9 @@ export default function OrdersScreen({ navigation }) {
   return (
     <View style={s.container}>
       <StatusBar style="light" />
-      <LogoMenu
-        onSignOut={handleSignOut}
-        onOrders={() => {}}
-        onProfile={() => navigation.navigate('Profile')}
-        onSettings={() => navigation.navigate('Settings')}
-      />
+      <TopBar />
 
       <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backRow}>
-          <Ionicons name="arrow-back" size={18} color={GREY} />
-          <Text style={s.backTxt}>Back</Text>
-        </TouchableOpacity>
 
         <Text style={s.headline}>My{'\n'}<Text style={s.headlineAccent}>Orders.</Text></Text>
 
@@ -150,6 +141,11 @@ export default function OrdersScreen({ navigation }) {
         })}
 
       </ScrollView>
+      <BottomBar active="orders" role="customer" onPress={(tabId) => {
+        if (tabId === 'home') navigation.navigate('Customer');
+        else if (tabId === 'profile') navigation.navigate('Profile');
+        else if (tabId === 'settings') navigation.navigate('Settings');
+      }} />
     </View>
   );
 }
@@ -157,10 +153,7 @@ export default function OrdersScreen({ navigation }) {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 24, paddingTop: 100, paddingBottom: 80 },
-
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 28 },
-  backTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
+  content: { paddingHorizontal: 24, paddingTop: 90, paddingBottom: 100 },
 
   headline: { fontSize: 56, fontWeight: '900', color: '#fff', letterSpacing: -1, lineHeight: 60, marginBottom: 28 },
   headlineAccent: { color: LIME },

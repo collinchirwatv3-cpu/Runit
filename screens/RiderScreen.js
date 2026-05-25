@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Animated } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Animated, TextInput, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { signOut } from '../auth';
-import LogoMenu from './LogoMenu';
+import TopBar from './TopBar';
+import BottomBar from './BottomBar';
 
 const LIME = '#c8f000';
 const BG = '#080808';
@@ -73,6 +74,10 @@ export default function RiderScreen({ navigation }) {
   const [view, setView] = useState('home');
   const [userId, setUserId] = useState(null);
   const [toastMsg, setToastMsg] = useState('');
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+  const pinInputRef = useRef(null);
+  const locationIntervalRef = useRef(null);
   const sub = useRef(null);
 
   useEffect(() => {
@@ -107,8 +112,50 @@ export default function RiderScreen({ navigation }) {
     setTimeout(() => setToastMsg(''), 3500);
   };
 
+  // Start broadcasting GPS position while on active delivery
+  const startLocationBroadcast = (job) => {
+    if (String(job.id).startsWith('m')) return; // skip mock jobs
+    clearInterval(locationIntervalRef.current);
+
+    const broadcast = async () => {
+      try {
+        if (Platform.OS === 'web') {
+          if (!navigator.geolocation) return;
+          navigator.geolocation.getCurrentPosition(async (pos) => {
+            await supabase.from('rider_locations').upsert({
+              rider_id: userId,
+              order_id: job.id,
+              lat: pos.coords.latitude,
+              lon: pos.coords.longitude,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'rider_id' });
+          });
+        } else {
+          const Location = require('expo-location');
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== 'granted') return;
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          await supabase.from('rider_locations').upsert({
+            rider_id: userId,
+            order_id: job.id,
+            lat: loc.coords.latitude,
+            lon: loc.coords.longitude,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'rider_id' });
+        }
+      } catch (_) {}
+    };
+
+    broadcast(); // immediate first broadcast
+    locationIntervalRef.current = setInterval(broadcast, 12000); // every 12s
+  };
+
+  const stopLocationBroadcast = () => {
+    clearInterval(locationIntervalRef.current);
+    locationIntervalRef.current = null;
+  };
+
   const acceptJob = async (job) => {
-    // Update DB only for real orders (not mock)
     if (!String(job.id).startsWith('m')) {
       const { error } = await supabase
         .from('orders')
@@ -118,22 +165,39 @@ export default function RiderScreen({ navigation }) {
     }
     setActiveJob(job);
     setJobs(p => p.filter(j => j.id !== job.id));
+    setPinInput('');
+    setPinError(false);
+    startLocationBroadcast(job);
     setView('active');
   };
 
-  const markDelivered = async () => {
+  const confirmDelivery = async () => {
     if (!activeJob) return;
+
+    // Fetch the actual PIN from the order
     if (!String(activeJob.id).startsWith('m')) {
-      await supabase
+      const { data } = await supabase
         .from('orders')
-        .update({ status: 'delivered' })
-        .eq('id', activeJob.id);
+        .select('delivery_pin')
+        .eq('id', activeJob.id)
+        .single();
+
+      if (data?.delivery_pin && pinInput !== data.delivery_pin) {
+        setPinError(true);
+        showToast('Wrong PIN — ask the customer again');
+        return;
+      }
+      await supabase.from('orders').update({ status: 'delivered' }).eq('id', activeJob.id);
     }
+
+    stopLocationBroadcast();
     const earned = activeJob.pay;
     setEarnings(p => p + earned);
     setTrips(p => p + 1);
     showToast(`Delivered! R ${earned} earned 💰`);
     setActiveJob(null);
+    setPinInput('');
+    setPinError(false);
     setView('home');
   };
 
@@ -144,14 +208,14 @@ export default function RiderScreen({ navigation }) {
     navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
   };
 
-  const logoMenu = (
-    <LogoMenu
-      onSignOut={handleSignOut}
-      onOrders={() => {}}
-      onProfile={() => navigation.navigate('Profile')}
-      onSettings={() => navigation.navigate('Settings')}
-    />
-  );
+  const handleBottomBar = (tabId) => {
+    if (tabId === 'home') setView('home');
+    else if (tabId === 'jobs') setView('jobs');
+    else if (tabId === 'earnings') setView('earnings');
+    else if (tabId === 'settings') navigation.navigate('Settings');
+  };
+
+  const activeTab = view === 'earnings' ? 'earnings' : view === 'jobs' ? 'jobs' : 'home';
 
   const weekAmts = [210, 280, 140, 315, 245, earnings || 180, 105];
   const maxAmt = Math.max(...weekAmts);
@@ -160,7 +224,7 @@ export default function RiderScreen({ navigation }) {
   if (view === 'active' && activeJob) return (
     <View style={s.container}>
       <StatusBar style="light" />
-      {logoMenu}
+      <TopBar />
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
         <Text style={s.greetLabel}>ACTIVE DELIVERY</Text>
@@ -192,21 +256,64 @@ export default function RiderScreen({ navigation }) {
           </View>
         </View>
 
-        {/* Delivered button */}
+        {/* Delivery notes — shown if customer left any */}
+        {activeJob.notes ? (
+          <View style={s.notesCard}>
+            <Ionicons name="chatbubble-outline" size={15} color={LIME} />
+            <Text style={s.notesTxt}>{activeJob.notes}</Text>
+          </View>
+        ) : null}
+
+        {/* 3-digit PIN entry */}
+        <View style={s.pinEntryCard}>
+          <Text style={s.pinEntryLabel}>CONFIRM DELIVERY</Text>
+          <Text style={s.pinEntryHint}>Ask the recipient for their 3-digit PIN</Text>
+
+          <TouchableOpacity
+            style={s.pinBoxRow}
+            onPress={() => pinInputRef.current?.focus()}
+            activeOpacity={1}
+          >
+            {[0, 1, 2].map(i => (
+              <View key={i} style={[
+                s.pinBox,
+                pinInput.length === i && s.pinBoxActive,
+                pinError && s.pinBoxError,
+              ]}>
+                <Text style={[s.pinDigit, pinError && { color: '#ef4444' }]}>
+                  {pinInput[i] || ''}
+                </Text>
+              </View>
+            ))}
+          </TouchableOpacity>
+
+          {/* Hidden input that actually captures keypresses */}
+          <TextInput
+            ref={pinInputRef}
+            style={s.pinHiddenInput}
+            value={pinInput}
+            onChangeText={v => {
+              setPinInput(v.replace(/\D/g, '').slice(0, 3));
+              setPinError(false);
+            }}
+            keyboardType="numeric"
+            maxLength={3}
+          />
+
+          {pinError && <Text style={s.pinErrorTxt}>Incorrect PIN — try again</Text>}
+        </View>
+
         <TouchableOpacity
-          style={s.deliveredBtn}
-          onPress={markDelivered}
+          style={[s.deliveredBtn, pinInput.length < 3 && { opacity: 0.4 }]}
+          onPress={confirmDelivery}
+          disabled={pinInput.length < 3}
           activeOpacity={0.85}
         >
           <Ionicons name="checkmark-circle-outline" size={22} color={BG} />
-          <Text style={s.deliveredBtnTxt}>Mark as Delivered</Text>
+          <Text style={s.deliveredBtnTxt}>Confirm Delivery</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={s.backToHomeBtn}
-          onPress={() => setView('home')}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity style={s.backToHomeBtn} onPress={() => { stopLocationBroadcast(); setView('home'); }} activeOpacity={0.7}>
           <Text style={s.backToHomeTxt}>Back to Dashboard</Text>
         </TouchableOpacity>
 
@@ -216,10 +323,11 @@ export default function RiderScreen({ navigation }) {
   );
 
   // ── HOME ──────────────────────────────────────────────────────────────
+
   if (view === 'home') return (
     <View style={s.container}>
       <StatusBar style="light" />
-      {logoMenu}
+      <TopBar />
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
         <View style={s.greeting}>
@@ -311,6 +419,7 @@ export default function RiderScreen({ navigation }) {
         )}
 
       </ScrollView>
+      <BottomBar active={activeTab} role="rider" onPress={handleBottomBar} />
       {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
     </View>
   );
@@ -319,7 +428,7 @@ export default function RiderScreen({ navigation }) {
   if (view === 'jobs') return (
     <View style={s.container}>
       <StatusBar style="light" />
-      {logoMenu}
+      <TopBar />
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
           <Ionicons name="arrow-back" size={18} color={GREY} />
@@ -334,6 +443,7 @@ export default function RiderScreen({ navigation }) {
           </View>
         )}
         {jobs.map(job => (
+
           <View key={job.id} style={s.jobCard}>
             <View style={s.jobCardTop}>
               <Text style={s.jobPay}>R {job.pay}</Text>
@@ -364,6 +474,7 @@ export default function RiderScreen({ navigation }) {
           </View>
         ))}
       </ScrollView>
+      <BottomBar active="jobs" role="rider" onPress={handleBottomBar} />
       {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
     </View>
   );
@@ -372,7 +483,7 @@ export default function RiderScreen({ navigation }) {
   if (view === 'earnings') return (
     <View style={s.container}>
       <StatusBar style="light" />
-      {logoMenu}
+      <TopBar />
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
           <Ionicons name="arrow-back" size={18} color={GREY} />
@@ -409,6 +520,7 @@ export default function RiderScreen({ navigation }) {
           </View>
         ))}
       </ScrollView>
+      <BottomBar active="earnings" role="rider" onPress={handleBottomBar} />
       {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
     </View>
   );
@@ -527,4 +639,32 @@ const s = StyleSheet.create({
     shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
   },
   toastTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
+
+  // Notes card
+  notesCard: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    backgroundColor: 'rgba(200,240,0,0.06)', borderWidth: 1,
+    borderColor: 'rgba(200,240,0,0.18)', borderRadius: 16,
+    padding: 14, marginBottom: 16,
+  },
+  notesTxt: { flex: 1, fontSize: 13, color: '#ccc', fontWeight: '500', lineHeight: 20 },
+
+  // PIN entry
+  pinEntryCard: {
+    backgroundColor: SURFACE, borderRadius: 20, padding: 20,
+    alignItems: 'center', marginBottom: 20,
+  },
+  pinEntryLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 6 },
+  pinEntryHint: { fontSize: 13, color: GREY, marginBottom: 20 },
+  pinBoxRow: { flexDirection: 'row', gap: 12, marginBottom: 4 },
+  pinBox: {
+    width: 64, height: 72, borderRadius: 16,
+    backgroundColor: '#0e0e0e', borderWidth: 2, borderColor: '#2a2a2a',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pinBoxActive: { borderColor: LIME },
+  pinBoxError: { borderColor: '#ef4444' },
+  pinDigit: { fontSize: 36, fontWeight: '900', color: '#fff' },
+  pinHiddenInput: { position: 'absolute', opacity: 0, width: 1, height: 1 },
+  pinErrorTxt: { fontSize: 12, color: '#ef4444', fontWeight: '600', marginTop: 8 },
 });

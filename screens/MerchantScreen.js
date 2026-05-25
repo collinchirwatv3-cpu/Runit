@@ -4,7 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { signOut } from '../auth';
-import LogoMenu from './LogoMenu';
+import TopBar from './TopBar';
+import BottomBar from './BottomBar';
 
 const LIME = '#c8f000';
 const BG = '#080808';
@@ -84,12 +85,16 @@ export default function MerchantScreen({ navigation }) {
 
   const inputStyle = (field) => [s.input, focused === field && s.inputFocused];
 
-  const logoMenu = (
-    <LogoMenu
-      onSignOut={handleSignOut}
-      onOrders={() => setView('orders')}
-      onProfile={() => navigation.navigate('Profile')}
-      onSettings={() => navigation.navigate('Settings')}
+  const bottomBar = (
+    <BottomBar
+      active={view === 'orders' ? 'orders' : 'home'}
+      role="merchant"
+      onPress={(tabId) => {
+        if (tabId === 'home') setView('home');
+        else if (tabId === 'orders') setView('orders');
+        else if (tabId === 'profile') navigation.navigate('Profile');
+        else if (tabId === 'settings') navigation.navigate('Settings');
+      }}
     />
   );
 
@@ -97,7 +102,7 @@ export default function MerchantScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        {logoMenu}
+        <TopBar />
         <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
           <View style={s.headerRow}>
@@ -239,6 +244,7 @@ export default function MerchantScreen({ navigation }) {
             </View>
           </View>
         </Modal>
+      {bottomBar}
       </View>
     );
   }
@@ -247,7 +253,7 @@ export default function MerchantScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        {logoMenu}
+        <TopBar />
         <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
           <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
             <Ionicons name="arrow-back" size={18} color={GREY} />
@@ -272,6 +278,7 @@ export default function MerchantScreen({ navigation }) {
             );
           })}
         </ScrollView>
+        {bottomBar}
       </View>
     );
   }
@@ -282,7 +289,7 @@ export default function MerchantScreen({ navigation }) {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 24, paddingTop: 100, paddingBottom: 80 },
+  scrollContent: { paddingHorizontal: 24, paddingTop: 90, paddingBottom: 100 },
 
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 24 },
   headerLabel: { fontSize: 11, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 4 },
