@@ -75,22 +75,73 @@ function JobBanner({ job, onAccept, onDismiss }) {
       <View style={jb.inner}>
         <View style={jb.accent} />
         <View style={jb.body}>
-          <View style={jb.badge}><Text style={jb.badgeTxt}>NEW JOB</Text></View>
-          <View style={jb.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={jb.pay}>R {job.pay}</Text>
-              <Text style={jb.route} numberOfLines={1}>{job.from} → {job.to}</Text>
-              <Text style={jb.meta}>{job.km} km · ~{job.time} min</Text>
-            </View>
-            <View style={jb.actions}>
-              <TouchableOpacity style={jb.acceptBtn} onPress={() => slideOut(onAccept)} activeOpacity={0.85}>
-                <Text style={jb.acceptTxt}>Accept</Text>
-              </TouchableOpacity>
+          {/* Top row: badge + size + dismiss */}
+          <View style={jb.topRow}>
+            <View style={jb.badge}><Text style={jb.badgeTxt}>NEW JOB</Text></View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={jb.sizeBadge}>
+                <Text style={jb.sizeTxt}>{job.size === 'large' ? '📫 Large' : '📦 Small'}</Text>
+              </View>
               <TouchableOpacity style={jb.closeBtn} onPress={() => slideOut(onDismiss)} activeOpacity={0.7}>
                 <Ionicons name="close" size={18} color={GREY} />
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Pay + tip */}
+          <View style={jb.payRow}>
+            <Text style={jb.pay}>R {job.pay}</Text>
+            {job.tip > 0 && (
+              <View style={jb.tipBadge}>
+                <Ionicons name="gift-outline" size={11} color={GREEN} />
+                <Text style={jb.tipTxt}>+R{job.tip} tip</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Route */}
+          <View style={jb.routeRow}>
+            <View style={jb.routeStop}>
+              <View style={[jb.routeDot, { backgroundColor: LIME }]} />
+              <Text style={jb.routeAddr} numberOfLines={1}>{job.from}</Text>
+            </View>
+            <View style={jb.routeLine} />
+            <View style={jb.routeStop}>
+              <View style={[jb.routeDot, { backgroundColor: '#ef4444' }]} />
+              <Text style={jb.routeAddr} numberOfLines={1}>{job.to}</Text>
+            </View>
+          </View>
+
+          {/* Meta: distance, time, proximity */}
+          <View style={jb.metaRow}>
+            <View style={jb.metaChip}>
+              <Ionicons name="navigate-outline" size={11} color={GREY} />
+              <Text style={jb.metaTxt}>{job.km} km</Text>
+            </View>
+            <View style={jb.metaChip}>
+              <Ionicons name="time-outline" size={11} color={GREY} />
+              <Text style={jb.metaTxt}>~{job.time} min</Text>
+            </View>
+            {job.distToPickup != null && (
+              <View style={jb.metaChip}>
+                <Ionicons name="location-outline" size={11} color={LIME} />
+                <Text style={[jb.metaTxt, { color: LIME }]}>{job.distToPickup} km away</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Notes */}
+          {job.notes ? (
+            <View style={jb.notesRow}>
+              <Ionicons name="chatbubble-outline" size={12} color={AMBER} />
+              <Text style={jb.notesTxt} numberOfLines={2}>{job.notes}</Text>
+            </View>
+          ) : null}
+
+          {/* Accept button */}
+          <TouchableOpacity style={jb.acceptBtn} onPress={() => slideOut(onAccept)} activeOpacity={0.85}>
+            <Text style={jb.acceptTxt}>Accept · R {job.pay}</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </Animated.View>
@@ -189,12 +240,24 @@ function SOSButton() {
   );
 }
 
+// ─── Haversine distance (km) ──────────────────────────────────────────────
+
+function haversine(a, b) {
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const x = Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
 // ─── Mock jobs ────────────────────────────────────────────────────────────
 
 const MOCK_JOBS = [
-  { id: 'm1', pay: 78,  km: 5.8, time: 16, from: 'De Waterkant',  to: 'Green Point',    notes: null, tip: 0 },
-  { id: 'm2', pay: 52,  km: 3.2, time: 9,  from: 'Cape Town CBD', to: 'Tamboerskloof',  notes: null, tip: 0 },
-  { id: 'm3', pay: 103, km: 8.1, time: 22, from: 'Observatory',   to: 'Camps Bay',       notes: null, tip: 0 },
+  { id: 'm1', pay: 78,  km: 5.8, time: 16, from: 'De Waterkant',  to: 'Green Point',    notes: null, tip: 0,  size: 'small', distToPickup: null, fromLat: null, fromLon: null },
+  { id: 'm2', pay: 52,  km: 3.2, time: 9,  from: 'Cape Town CBD', to: 'Tamboerskloof',  notes: 'Fragile — handle with care', tip: 10, size: 'small', distToPickup: null, fromLat: null, fromLon: null },
+  { id: 'm3', pay: 103, km: 8.1, time: 22, from: 'Observatory',   to: 'Camps Bay',      notes: null, tip: 20, size: 'large', distToPickup: null, fromLat: null, fromLon: null },
 ];
 
 function formatOrder(o) {
@@ -212,6 +275,10 @@ function formatOrder(o) {
     to: o.to_address || 'Drop-off',
     notes: o.notes || null,
     tip: o.tip || 0,
+    size: o.package_size || 'small',
+    fromLat: o.from_lat || null,
+    fromLon: o.from_lon || null,
+    distToPickup: null, // filled after proximity check
   };
 }
 
@@ -261,6 +328,8 @@ export default function RiderScreen({ navigation }) {
   const [deliveryHistory, setDeliveryHistory] = useState([]);
   const locationIntervalRef = useRef(null);
   const sub = useRef(null);
+  const riderLocRef = useRef(null);      // current rider position (for proximity)
+  const passiveWatchRef = useRef(null);  // web geolocation watchId
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -271,14 +340,23 @@ export default function RiderScreen({ navigation }) {
   }, []);
 
   useEffect(() => {
-    if (!online) { setJobs([]); sub.current?.unsubscribe(); return; }
-    fetchOrders();
+    if (!online) {
+      setJobs([]);
+      sub.current?.unsubscribe();
+      stopPassiveLocation();
+      return;
+    }
+    startPassiveLocation();
+    // Small delay so passive location can get a first fix before fetching
+    const t = setTimeout(fetchOrders, 1200);
     sub.current = supabase.channel('pending_orders')
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'orders',
         filter: 'status=eq.pending',
       }, (p) => {
-        const incoming = formatOrder(p.new);
+        const incoming = applyProximity(formatOrder(p.new));
+        // Skip if too far and we have a location fix
+        if (riderLocRef.current && incoming._tooFar) return;
         setJobs(prev => [incoming, ...prev]);
         playAlert();
         setNewJobAlert(incoming);
@@ -292,8 +370,19 @@ export default function RiderScreen({ navigation }) {
         }
       })
       .subscribe();
-    return () => sub.current?.unsubscribe();
+    return () => { clearTimeout(t); sub.current?.unsubscribe(); };
   }, [online]);
+
+  const PROXIMITY_KM = 10; // only show jobs within this radius
+
+  const applyProximity = (job) => {
+    const loc = riderLocRef.current;
+    if (loc && job.fromLat && job.fromLon) {
+      const d = haversine(loc, { lat: job.fromLat, lon: job.fromLon });
+      return { ...job, distToPickup: Math.round(d * 10) / 10, _tooFar: d > PROXIMITY_KM };
+    }
+    return job;
+  };
 
   const fetchOrders = async () => {
     const { data } = await supabase
@@ -301,8 +390,48 @@ export default function RiderScreen({ navigation }) {
       .select('*')
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
-      .limit(10);
-    setJobs(data?.length ? data.map(formatOrder) : MOCK_JOBS);
+      .limit(20);
+    if (!data?.length) { setJobs(MOCK_JOBS); return; }
+    let jobs = data.map(o => applyProximity(formatOrder(o)));
+    // Filter to nearby only if we have location
+    if (riderLocRef.current) jobs = jobs.filter(j => !j._tooFar);
+    setJobs(jobs.length ? jobs : MOCK_JOBS);
+  };
+
+  const startPassiveLocation = () => {
+    if (Platform.OS === 'web') {
+      if (!navigator?.geolocation) return;
+      passiveWatchRef.current = navigator.geolocation.watchPosition(
+        (pos) => { riderLocRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude }; },
+        null,
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 30000 }
+      );
+    } else {
+      (async () => {
+        try {
+          const Location = require('expo-location');
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== 'granted') return;
+          passiveWatchRef.current = await Location.watchPositionAsync(
+            { accuracy: Location.Accuracy.Balanced, timeInterval: 30000, distanceInterval: 50 },
+            (loc) => { riderLocRef.current = { lat: loc.coords.latitude, lon: loc.coords.longitude }; }
+          );
+        } catch (_) {}
+      })();
+    }
+  };
+
+  const stopPassiveLocation = () => {
+    if (Platform.OS === 'web') {
+      if (passiveWatchRef.current != null) {
+        navigator.geolocation.clearWatch(passiveWatchRef.current);
+        passiveWatchRef.current = null;
+      }
+    } else {
+      passiveWatchRef.current?.remove?.();
+      passiveWatchRef.current = null;
+    }
+    riderLocRef.current = null;
   };
 
   const showToast = (msg) => {
@@ -716,13 +845,33 @@ export default function RiderScreen({ navigation }) {
           )}
           {jobs.map(job => (
             <View key={job.id} style={s.jobCard}>
+              {/* Pay + badges */}
               <View style={s.jobCardTop}>
-                <Text style={s.jobPay}>R {job.pay}</Text>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={s.jobKm}>{job.km} km</Text>
-                  <Text style={s.jobTime}>~{job.time} min</Text>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <Text style={s.jobPay}>R {job.pay}</Text>
+                    {job.tip > 0 && (
+                      <View style={s.jobTipBadge}>
+                        <Text style={s.jobTipTxt}>+R{job.tip} tip</Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <View style={s.jobMetaChip}>
+                      <Text style={s.jobMetaTxt}>{job.size === 'large' ? '📫 Large' : '📦 Small'}</Text>
+                    </View>
+                    <View style={s.jobMetaChip}>
+                      <Text style={s.jobMetaTxt}>{job.km} km · ~{job.time} min</Text>
+                    </View>
+                    {job.distToPickup != null && (
+                      <View style={[s.jobMetaChip, { borderColor: LIME + '40' }]}>
+                        <Text style={[s.jobMetaTxt, { color: LIME }]}>📍 {job.distToPickup} km from you</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
               </View>
+              {/* Route */}
               <View style={s.jobRoute}>
                 <View style={s.jobStop}>
                   <View style={[s.jobDot, { backgroundColor: LIME }]} />
@@ -734,6 +883,13 @@ export default function RiderScreen({ navigation }) {
                   <Text style={s.jobAddr}>{job.to}</Text>
                 </View>
               </View>
+              {/* Notes */}
+              {job.notes ? (
+                <View style={s.jobNotesRow}>
+                  <Ionicons name="chatbubble-outline" size={13} color={AMBER} />
+                  <Text style={s.jobNotesTxt} numberOfLines={2}>{job.notes}</Text>
+                </View>
+              ) : null}
               <View style={s.jobActions}>
                 <TouchableOpacity style={s.acceptBtn} onPress={() => acceptJob(job)}>
                   <Text style={s.acceptBtnTxt}>Accept · R {job.pay}</Text>
@@ -842,27 +998,59 @@ const jb = StyleSheet.create({
     borderWidth: 1, borderColor: '#222',
   },
   accent: { width: 4, backgroundColor: LIME },
-  body: { flex: 1, padding: 16 },
+  body: { flex: 1, padding: 14 },
+
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   badge: {
-    alignSelf: 'flex-start', backgroundColor: LIME + '20',
-    borderWidth: 1, borderColor: LIME + '40',
-    borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 10,
+    backgroundColor: LIME + '20', borderWidth: 1, borderColor: LIME + '40',
+    borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3,
   },
   badgeTxt: { fontSize: 9, fontWeight: '900', color: LIME, letterSpacing: 2 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  pay: { fontSize: 28, fontWeight: '900', color: '#22c55e', marginBottom: 2 },
-  route: { fontSize: 13, fontWeight: '700', color: '#fff', marginBottom: 2 },
-  meta: { fontSize: 12, color: GREY },
-  actions: { gap: 8, alignItems: 'center' },
-  acceptBtn: {
-    backgroundColor: LIME, borderRadius: 14,
-    paddingHorizontal: 16, paddingVertical: 10,
+  sizeBadge: {
+    backgroundColor: '#1e1e1e', borderRadius: 10,
+    paddingHorizontal: 8, paddingVertical: 3,
   },
-  acceptTxt: { fontSize: 14, fontWeight: '900', color: BG },
+  sizeTxt: { fontSize: 10, fontWeight: '700', color: '#aaa' },
   closeBtn: {
-    width: 34, height: 34, borderRadius: 17,
+    width: 30, height: 30, borderRadius: 15,
     backgroundColor: '#1e1e1e', alignItems: 'center', justifyContent: 'center',
   },
+
+  payRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  pay: { fontSize: 30, fontWeight: '900', color: GREEN },
+  tipBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: GREEN + '18', borderRadius: 10,
+    paddingHorizontal: 7, paddingVertical: 3,
+  },
+  tipTxt: { fontSize: 11, fontWeight: '800', color: GREEN },
+
+  routeRow: { marginBottom: 8 },
+  routeStop: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 },
+  routeDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  routeAddr: { fontSize: 13, fontWeight: '700', color: '#fff', flex: 1 },
+  routeLine: { width: 1, height: 10, backgroundColor: '#2a2a2a', marginLeft: 3, marginBottom: 3 },
+
+  metaRow: { flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap' },
+  metaChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#1e1e1e', borderRadius: 8,
+    paddingHorizontal: 7, paddingVertical: 4,
+  },
+  metaTxt: { fontSize: 11, fontWeight: '600', color: GREY },
+
+  notesRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    backgroundColor: AMBER + '10', borderRadius: 10,
+    padding: 8, marginBottom: 8,
+  },
+  notesTxt: { fontSize: 12, color: AMBER, flex: 1, fontWeight: '600' },
+
+  acceptBtn: {
+    backgroundColor: LIME, borderRadius: 14, height: 42,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  acceptTxt: { fontSize: 14, fontWeight: '900', color: BG },
 });
 
 const sos = StyleSheet.create({
@@ -972,6 +1160,21 @@ const s = StyleSheet.create({
   jobConnector: { width: 1, height: 8, backgroundColor: '#2a2a2a', marginLeft: 3 },
   jobAddr: { fontSize: 14, fontWeight: '700', color: '#fff', flex: 1 },
   stopLbl: { fontSize: 10, fontWeight: '700', color: GREY, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 3 },
+  jobTipBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: GREEN + '18', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  jobTipTxt: { fontSize: 11, fontWeight: '800', color: GREEN },
+  jobMetaChip: {
+    backgroundColor: '#1a1a1a', borderRadius: 8, borderWidth: 1, borderColor: '#252525',
+    paddingHorizontal: 8, paddingVertical: 4,
+  },
+  jobMetaTxt: { fontSize: 11, fontWeight: '600', color: GREY },
+  jobNotesRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: AMBER + '10', borderRadius: 12, padding: 10, marginBottom: 10,
+  },
+  jobNotesTxt: { fontSize: 12, color: AMBER, flex: 1, fontWeight: '600', lineHeight: 18 },
   jobActions: { flexDirection: 'row', gap: 8 },
   acceptBtn: { flex: 1, backgroundColor: LIME, borderRadius: 14, height: 48, alignItems: 'center', justifyContent: 'center' },
   acceptBtnTxt: { fontSize: 15, fontWeight: '900', color: BG },

@@ -345,6 +345,10 @@ export default function CustomerScreen({ navigation }) {
         delivery_pin: pin,
         notes: notes.trim() || null,
         tip: tipAmt,
+        from_lat: fromCoords?.lat || null,
+        from_lon: fromCoords?.lon || null,
+        to_lat: toCoords?.lat || null,
+        to_lon: toCoords?.lon || null,
       }])
       .select('id')
       .single();
