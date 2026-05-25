@@ -256,11 +256,18 @@ export default function RiderScreen({ navigation }) {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const pinInputRef = useRef(null);
+  const [completedJob, setCompletedJob] = useState(null);
+  const [earningsHistory, setEarningsHistory] = useState({ today: 0, trips: 0, week: [0, 0, 0, 0, 0, 0, 0] });
+  const [deliveryHistory, setDeliveryHistory] = useState([]);
   const locationIntervalRef = useRef(null);
   const sub = useRef(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id || null));
+    supabase.auth.getUser().then(({ data }) => {
+      const uid = data?.user?.id || null;
+      setUserId(uid);
+      if (uid) loadEarnings(uid);
+    });
   }, []);
 
   useEffect(() => {
@@ -292,6 +299,37 @@ export default function RiderScreen({ navigation }) {
   const showToast = (msg) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 3500);
+  };
+
+  const loadEarnings = async (uid) => {
+    const id = uid || userId;
+    if (!id) return;
+    // Fetch delivered orders for this rider from the past 7 days
+    const since = new Date();
+    since.setDate(since.getDate() - 6);
+    since.setHours(0, 0, 0, 0);
+    const { data } = await supabase
+      .from('orders')
+      .select('price, dist_km, from_address, to_address, created_at')
+      .eq('rider_id', id)
+      .eq('status', 'delivered')
+      .gte('created_at', since.toISOString())
+      .order('created_at', { ascending: false });
+    if (!data) return;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    let todayTotal = 0; let todayTrips = 0;
+    const week = [0, 0, 0, 0, 0, 0, 0]; // Mon=0 … Sun=6
+    data.forEach(o => {
+      const d = new Date(o.created_at);
+      const price = parseFloat(o.price) || 0;
+      const dow = (d.getDay() + 6) % 7;
+      week[dow] += price;
+      if (d >= today) { todayTotal += price; todayTrips++; }
+    });
+    setEarnings(todayTotal);
+    setTrips(todayTrips);
+    setEarningsHistory({ today: todayTotal, trips: todayTrips, week });
+    setDeliveryHistory(data);
   };
 
   const startLocationBroadcast = (job) => {
@@ -362,20 +400,19 @@ export default function RiderScreen({ navigation }) {
         .single();
       if (data?.delivery_pin && pinInput !== data.delivery_pin) {
         setPinError(true);
-        showToast('Wrong PIN — ask the customer again');
+        showToast('Wrong PIN — ask the recipient again');
         return;
       }
       await supabase.from('orders').update({ status: 'delivered' }).eq('id', activeJob.id);
     }
     stopLocationBroadcast();
-    const earned = activeJob.pay;
-    setEarnings(p => p + earned);
-    setTrips(p => p + 1);
-    showToast(`Delivered! R ${earned} earned 💰`);
+    const done = { ...activeJob };
+    setCompletedJob(done);
     setActiveJob(null);
     setPinInput('');
     setPinError(false);
-    setView('home');
+    await loadEarnings(userId);
+    setView('summary');
   };
 
   const skipJob = (id) => setJobs(p => p.filter(j => j.id !== id));
@@ -393,8 +430,8 @@ export default function RiderScreen({ navigation }) {
   };
 
   const activeTab = view === 'earnings' ? 'earnings' : view === 'jobs' ? 'jobs' : 'home';
-  const weekAmts = [210, 280, 140, 315, 245, earnings || 180, 105];
-  const maxAmt = Math.max(...weekAmts);
+  const weekAmts = earningsHistory.week;
+  const maxAmt = Math.max(...weekAmts, 1); // prevent divide-by-zero when all zeros
 
   return (
     <View style={s.container}>
@@ -490,6 +527,68 @@ export default function RiderScreen({ navigation }) {
 
           <TouchableOpacity style={s.backToHomeBtn} onPress={() => { stopLocationBroadcast(); setView('home'); }} activeOpacity={0.7}>
             <Text style={s.backToHomeTxt}>Back to Dashboard</Text>
+          </TouchableOpacity>
+
+        </ScrollView>
+      )}
+
+      {/* ── DELIVERY SUMMARY ── */}
+      {view === 'summary' && completedJob && (
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+
+          <View style={s.summaryHero}>
+            <View style={s.summaryCheck}>
+              <Ionicons name="checkmark" size={42} color={BG} />
+            </View>
+            <Text style={s.summaryTitle}>Delivered!</Text>
+            <Text style={s.summaryPay}>R {completedJob.pay}</Text>
+            <Text style={s.summarySub}>added to your earnings</Text>
+          </View>
+
+          <View style={s.summaryRoute}>
+            <View style={s.jobStop}>
+              <View style={[s.jobDot, { backgroundColor: LIME }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.stopLbl}>COLLECTED FROM</Text>
+                <Text style={s.jobAddr}>{completedJob.from}</Text>
+              </View>
+            </View>
+            <View style={[s.jobConnector, { height: 20, marginLeft: 3 }]} />
+            <View style={s.jobStop}>
+              <View style={[s.jobDot, { backgroundColor: GREEN }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.stopLbl}>DELIVERED TO</Text>
+                <Text style={s.jobAddr}>{completedJob.to}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={s.summaryStats}>
+            {[
+              { label: 'Distance', val: `${completedJob.km} km` },
+              { label: 'Est. Time', val: `~${completedJob.time} min` },
+              { label: 'Payout', val: `R ${completedJob.pay}` },
+            ].map((item, i) => (
+              <View key={i} style={s.summaryStatItem}>
+                <Text style={s.summaryStatVal}>{item.val}</Text>
+                <Text style={s.summaryStatLabel}>{item.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={s.summaryTodayCard}>
+            <Text style={s.summaryTodayLabel}>TODAY'S TOTAL</Text>
+            <Text style={s.summaryTodayAmt}>R {earnings}</Text>
+            <Text style={s.summaryTodaySub}>{trips} {trips === 1 ? 'delivery' : 'deliveries'} completed</Text>
+          </View>
+
+          <TouchableOpacity
+            style={s.summaryHomeBtn}
+            onPress={() => { setCompletedJob(null); setView('home'); }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="bicycle-outline" size={20} color={BG} />
+            <Text style={s.summaryHomeBtnTxt}>Back to Dashboard</Text>
           </TouchableOpacity>
 
         </ScrollView>
@@ -675,11 +774,41 @@ export default function RiderScreen({ navigation }) {
               <Text style={s.earnDayAmt}>R {weekAmts[i]}</Text>
             </View>
           ))}
+
+          {deliveryHistory.length > 0 && (
+            <>
+              <Text style={[s.sectionLabel, { marginTop: 24 }]}>Recent Deliveries</Text>
+              {deliveryHistory.map((item, i) => (
+                <View key={i} style={s.historyRow}>
+                  <View style={s.historyIcon}>
+                    <Ionicons name="checkmark-circle" size={18} color={GREEN} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.historyRoute} numberOfLines={1}>
+                      {item.from_address} → {item.to_address}
+                    </Text>
+                    <Text style={s.historyDate}>
+                      {new Date(item.created_at).toLocaleDateString('en-ZA', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                  <Text style={s.historyAmt}>R {item.price}</Text>
+                </View>
+              ))}
+            </>
+          )}
+
+          {deliveryHistory.length === 0 && (
+            <View style={s.emptyState}>
+              <Text style={s.emptyIcon}>📦</Text>
+              <Text style={s.emptyTitle}>No deliveries yet</Text>
+              <Text style={s.emptySub}>Complete your first run to see history here</Text>
+            </View>
+          )}
         </ScrollView>
       )}
 
-      {/* ── Bottom bar (hidden during active delivery) ── */}
-      {view !== 'active' && (
+      {/* ── Bottom bar (hidden during active delivery and summary) ── */}
+      {view !== 'active' && view !== 'summary' && (
         <BottomBar active={activeTab} role="rider" onPress={handleBottomBar} />
       )}
 
@@ -899,6 +1028,43 @@ const s = StyleSheet.create({
   earnBarBg: { flex: 1, height: 5, backgroundColor: SURFACE, borderRadius: 3, overflow: 'hidden' },
   earnBarFill: { height: '100%', backgroundColor: LIME, borderRadius: 3 },
   earnDayAmt: { fontSize: 13, fontWeight: '800', color: '#fff', width: 54, textAlign: 'right' },
+
+  // Delivery history list
+  historyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: SURFACE, borderRadius: 16, padding: 14, marginBottom: 8 },
+  historyIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: GREEN + '18', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  historyRoute: { fontSize: 13, fontWeight: '700', color: '#fff', marginBottom: 3 },
+  historyDate: { fontSize: 11, color: GREY },
+  historyAmt: { fontSize: 16, fontWeight: '900', color: GREEN, flexShrink: 0 },
+
+  // Post-delivery summary
+  summaryHero: { alignItems: 'center', paddingVertical: 28, marginBottom: 8 },
+  summaryCheck: {
+    width: 80, height: 80, borderRadius: 40, backgroundColor: LIME,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 20,
+    shadowColor: LIME, shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.55, shadowRadius: 28, elevation: 14,
+  },
+  summaryTitle: { fontSize: 36, fontWeight: '900', color: '#fff', marginBottom: 6 },
+  summaryPay: { fontSize: 56, fontWeight: '900', color: LIME, letterSpacing: -1, marginBottom: 4 },
+  summarySub: { fontSize: 14, color: GREY, fontWeight: '600' },
+  summaryRoute: { backgroundColor: SURFACE, borderRadius: 20, padding: 20, marginBottom: 12 },
+  summaryStats: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  summaryStatItem: { flex: 1, backgroundColor: SURFACE, borderRadius: 16, padding: 16, alignItems: 'center' },
+  summaryStatVal: { fontSize: 17, fontWeight: '900', color: '#fff', marginBottom: 4 },
+  summaryStatLabel: { fontSize: 11, color: GREY, fontWeight: '600' },
+  summaryTodayCard: {
+    backgroundColor: 'rgba(200,240,0,0.07)', borderRadius: 20, padding: 20,
+    alignItems: 'center', marginBottom: 24,
+    borderWidth: 1, borderColor: LIME + '25',
+  },
+  summaryTodayLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 8 },
+  summaryTodayAmt: { fontSize: 42, fontWeight: '900', color: LIME, letterSpacing: -0.5 },
+  summaryTodaySub: { fontSize: 13, color: GREY, marginTop: 4 },
+  summaryHomeBtn: {
+    backgroundColor: LIME, borderRadius: 18, height: 58,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+  },
+  summaryHomeBtnTxt: { fontSize: 16, fontWeight: '900', color: BG },
 
   toast: {
     position: 'absolute', bottom: 40, alignSelf: 'center',
