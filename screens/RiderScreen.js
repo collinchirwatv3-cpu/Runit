@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Animated, TextInput, Platform } from 'react-native';
+import {
+  StyleSheet, Text, View, TouchableOpacity, ScrollView,
+  Animated, TextInput, Platform, Modal, Linking, Alert, Vibration,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
@@ -16,14 +19,185 @@ const GREY = '#777';
 const GREEN = '#22c55e';
 const AMBER = '#f59e0b';
 
+// ─── Alert: vibration + web audio beep ───────────────────────────────────
+
+function playAlert() {
+  try { Vibration.vibrate([0, 180, 80, 180]); } catch (_) {}
+  if (Platform.OS === 'web') {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const beep = (freq, start, dur) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.22, ctx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + dur);
+      };
+      beep(880, 0, 0.12);
+      beep(1100, 0.16, 0.12);
+      beep(880, 0.32, 0.22);
+    } catch (_) {}
+  }
+}
+
+// ─── Job alert banner ─────────────────────────────────────────────────────
+
+function JobBanner({ job, onAccept, onDismiss }) {
+  const translateY = useRef(new Animated.Value(-160)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const gone = useRef(false);
+
+  const slideOut = (cb) => {
+    if (gone.current) return;
+    gone.current = true;
+    Animated.parallel([
+      Animated.timing(translateY, { toValue: -160, duration: 260, useNativeDriver: false }),
+      Animated.timing(opacity, { toValue: 0, duration: 260, useNativeDriver: false }),
+    ]).start(() => cb());
+  };
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(translateY, { toValue: 0, tension: 70, friction: 11, useNativeDriver: false }),
+      Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: false }),
+    ]).start();
+    const t = setTimeout(() => slideOut(onDismiss), 12000);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <Animated.View style={[jb.wrap, { transform: [{ translateY }], opacity }]}>
+      <View style={jb.inner}>
+        <View style={jb.accent} />
+        <View style={jb.body}>
+          <View style={jb.badge}><Text style={jb.badgeTxt}>NEW JOB</Text></View>
+          <View style={jb.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={jb.pay}>R {job.pay}</Text>
+              <Text style={jb.route} numberOfLines={1}>{job.from} → {job.to}</Text>
+              <Text style={jb.meta}>{job.km} km · ~{job.time} min</Text>
+            </View>
+            <View style={jb.actions}>
+              <TouchableOpacity style={jb.acceptBtn} onPress={() => slideOut(onAccept)} activeOpacity={0.85}>
+                <Text style={jb.acceptTxt}>Accept</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={jb.closeBtn} onPress={() => slideOut(onDismiss)} activeOpacity={0.7}>
+                <Ionicons name="close" size={18} color={GREY} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ─── SOS emergency contacts ───────────────────────────────────────────────
+
+const SOS_CONTACTS = [
+  {
+    label: 'Emergency',
+    number: '112',
+    icon: 'warning-outline',
+    color: '#ef4444',
+    desc: 'All emergencies · Works without airtime',
+  },
+  {
+    label: 'Police (SAPS)',
+    number: '10111',
+    icon: 'shield-outline',
+    color: '#3b82f6',
+    desc: 'South African Police Service',
+  },
+  {
+    label: 'Ambulance / EMS',
+    number: '10177',
+    icon: 'medkit-outline',
+    color: '#f59e0b',
+    desc: 'Emergency Medical Services',
+  },
+  {
+    label: 'Cape Town Emergency',
+    number: '107',
+    icon: 'medical-outline',
+    color: '#22c55e',
+    desc: 'City of Cape Town Emergency Services',
+  },
+];
+
+function SOSButton() {
+  const [visible, setVisible] = useState(false);
+
+  const call = (number) => {
+    Linking.openURL(`tel:${number}`).catch(() =>
+      Alert.alert('Cannot call', `Dial ${number} manually`)
+    );
+  };
+
+  return (
+    <>
+      <TouchableOpacity style={sos.btn} onPress={() => setVisible(true)} activeOpacity={0.85}>
+        <Ionicons name="warning" size={13} color="#fff" />
+        <Text style={sos.btnTxt}>SOS</Text>
+      </TouchableOpacity>
+
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={() => setVisible(false)}>
+        <View style={sos.overlay}>
+          <View style={sos.sheet}>
+            <View style={sos.bar} />
+
+            <View style={sos.header}>
+              <View style={sos.headerIcon}>
+                <Ionicons name="warning" size={26} color="#ef4444" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={sos.title}>Emergency Contacts</Text>
+                <Text style={sos.sub}>Tap any number to call immediately</Text>
+              </View>
+            </View>
+
+            {SOS_CONTACTS.map((c, i) => (
+              <TouchableOpacity key={i} style={sos.row} onPress={() => call(c.number)} activeOpacity={0.7}>
+                <View style={[sos.iconWrap, { backgroundColor: c.color + '18' }]}>
+                  <Ionicons name={c.icon} size={20} color={c.color} />
+                </View>
+                <View style={sos.rowText}>
+                  <Text style={sos.rowLabel}>{c.label}</Text>
+                  <Text style={sos.rowDesc}>{c.desc}</Text>
+                </View>
+                <View style={[sos.callBtn, { backgroundColor: c.color }]}>
+                  <Ionicons name="call" size={13} color="#fff" style={{ marginBottom: 2 }} />
+                  <Text style={sos.callBtnTxt}>{c.number}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+
+            <Text style={sos.note}>🔒  112 works even without airtime or signal</Text>
+
+            <TouchableOpacity style={sos.closeBtn} onPress={() => setVisible(false)} activeOpacity={0.85}>
+              <Text style={sos.closeBtnTxt}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+// ─── Mock jobs ────────────────────────────────────────────────────────────
+
 const MOCK_JOBS = [
-  { id: 'm1', pay: 78,  km: 5.8, time: 16, from: 'De Waterkant',  to: 'Green Point' },
-  { id: 'm2', pay: 52,  km: 3.2, time: 9,  from: 'Cape Town CBD', to: 'Tamboerskloof' },
-  { id: 'm3', pay: 103, km: 8.1, time: 22, from: 'Observatory',   to: 'Camps Bay' },
+  { id: 'm1', pay: 78,  km: 5.8, time: 16, from: 'De Waterkant',  to: 'Green Point',    notes: null, tip: 0 },
+  { id: 'm2', pay: 52,  km: 3.2, time: 9,  from: 'Cape Town CBD', to: 'Tamboerskloof',  notes: null, tip: 0 },
+  { id: 'm3', pay: 103, km: 8.1, time: 22, from: 'Observatory',   to: 'Camps Bay',       notes: null, tip: 0 },
 ];
 
 function formatOrder(o) {
-  // Use real dist_km if available; fall back to estimate from price
   const km = o.dist_km
     ? parseFloat(o.dist_km)
     : o.price
@@ -36,6 +210,8 @@ function formatOrder(o) {
     time: Math.round((km / 22) * 60),
     from: o.from_address || 'Pickup',
     to: o.to_address || 'Drop-off',
+    notes: o.notes || null,
+    tip: o.tip || 0,
   };
 }
 
@@ -65,6 +241,8 @@ function PulseRing({ delay, size }) {
   );
 }
 
+// ─── Main screen ──────────────────────────────────────────────────────────
+
 export default function RiderScreen({ navigation }) {
   const [online, setOnline] = useState(false);
   const [earnings, setEarnings] = useState(0);
@@ -74,6 +252,7 @@ export default function RiderScreen({ navigation }) {
   const [view, setView] = useState('home');
   const [userId, setUserId] = useState(null);
   const [toastMsg, setToastMsg] = useState('');
+  const [newJobAlert, setNewJobAlert] = useState(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const pinInputRef = useRef(null);
@@ -92,7 +271,10 @@ export default function RiderScreen({ navigation }) {
         event: 'INSERT', schema: 'public', table: 'orders',
         filter: 'status=eq.pending',
       }, (p) => {
-        setJobs(prev => [formatOrder(p.new), ...prev]);
+        const incoming = formatOrder(p.new);
+        setJobs(prev => [incoming, ...prev]);
+        playAlert();
+        setNewJobAlert(incoming);
       }).subscribe();
     return () => sub.current?.unsubscribe();
   }, [online]);
@@ -112,9 +294,8 @@ export default function RiderScreen({ navigation }) {
     setTimeout(() => setToastMsg(''), 3500);
   };
 
-  // Start broadcasting GPS position while on active delivery
   const startLocationBroadcast = (job) => {
-    if (String(job.id).startsWith('m')) return; // skip mock jobs
+    if (String(job.id).startsWith('m')) return;
     clearInterval(locationIntervalRef.current);
 
     const broadcast = async () => {
@@ -146,8 +327,8 @@ export default function RiderScreen({ navigation }) {
       } catch (_) {}
     };
 
-    broadcast(); // immediate first broadcast
-    locationIntervalRef.current = setInterval(broadcast, 12000); // every 12s
+    broadcast();
+    locationIntervalRef.current = setInterval(broadcast, 12000);
   };
 
   const stopLocationBroadcast = () => {
@@ -173,15 +354,12 @@ export default function RiderScreen({ navigation }) {
 
   const confirmDelivery = async () => {
     if (!activeJob) return;
-
-    // Fetch the actual PIN from the order
     if (!String(activeJob.id).startsWith('m')) {
       const { data } = await supabase
         .from('orders')
         .select('delivery_pin')
         .eq('id', activeJob.id)
         .single();
-
       if (data?.delivery_pin && pinInput !== data.delivery_pin) {
         setPinError(true);
         showToast('Wrong PIN — ask the customer again');
@@ -189,7 +367,6 @@ export default function RiderScreen({ navigation }) {
       }
       await supabase.from('orders').update({ status: 'delivered' }).eq('id', activeJob.id);
     }
-
     stopLocationBroadcast();
     const earned = activeJob.pay;
     setEarnings(p => p + earned);
@@ -216,315 +393,384 @@ export default function RiderScreen({ navigation }) {
   };
 
   const activeTab = view === 'earnings' ? 'earnings' : view === 'jobs' ? 'jobs' : 'home';
-
   const weekAmts = [210, 280, 140, 315, 245, earnings || 180, 105];
   const maxAmt = Math.max(...weekAmts);
 
-  // ── ACTIVE DELIVERY ───────────────────────────────────────────────────
-  if (view === 'active' && activeJob) return (
+  return (
     <View style={s.container}>
       <StatusBar style="light" />
       <TopBar />
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
-        <Text style={s.greetLabel}>ACTIVE DELIVERY</Text>
-        <Text style={s.pageTitle}>En <Text style={{ color: LIME }}>Route</Text></Text>
+      {/* ── Floating SOS button — always visible ── */}
+      <SOSButton />
 
-        {/* Pay hero */}
-        <View style={s.activeHero}>
-          <Text style={s.activeHeroLabel}>YOUR PAYOUT</Text>
-          <Text style={s.activeHeroPay}>R {activeJob.pay}</Text>
-          <Text style={s.activeHeroSub}>{activeJob.km} km · ~{activeJob.time} min</Text>
-        </View>
+      {/* ── New job alert banner ── */}
+      {online && newJobAlert && view !== 'active' && (
+        <JobBanner
+          job={newJobAlert}
+          onAccept={() => { setNewJobAlert(null); acceptJob(newJobAlert); }}
+          onDismiss={() => setNewJobAlert(null)}
+        />
+      )}
 
-        {/* Route */}
-        <View style={s.jobRoute}>
-          <View style={s.jobStop}>
-            <View style={[s.jobDot, { backgroundColor: LIME }]} />
-            <View style={{ flex: 1 }}>
-              <Text style={s.stopLbl}>COLLECTING FROM</Text>
-              <Text style={s.jobAddr}>{activeJob.from}</Text>
+      {/* ── ACTIVE DELIVERY ── */}
+      {view === 'active' && activeJob && (
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+
+          <Text style={s.greetLabel}>ACTIVE DELIVERY</Text>
+          <Text style={s.pageTitle}>En <Text style={{ color: LIME }}>Route</Text></Text>
+
+          <View style={s.activeHero}>
+            <Text style={s.activeHeroLabel}>YOUR PAYOUT</Text>
+            <Text style={s.activeHeroPay}>R {activeJob.pay}</Text>
+            <Text style={s.activeHeroSub}>{activeJob.km} km · ~{activeJob.time} min</Text>
+          </View>
+
+          <View style={s.jobRoute}>
+            <View style={s.jobStop}>
+              <View style={[s.jobDot, { backgroundColor: LIME }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.stopLbl}>COLLECTING FROM</Text>
+                <Text style={s.jobAddr}>{activeJob.from}</Text>
+              </View>
+            </View>
+            <View style={[s.jobConnector, { height: 20, marginLeft: 3 }]} />
+            <View style={s.jobStop}>
+              <View style={[s.jobDot, { backgroundColor: '#ef4444' }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.stopLbl}>DELIVERING TO</Text>
+                <Text style={s.jobAddr}>{activeJob.to}</Text>
+              </View>
             </View>
           </View>
-          <View style={[s.jobConnector, { height: 20, marginLeft: 3 }]} />
-          <View style={s.jobStop}>
-            <View style={[s.jobDot, { backgroundColor: '#ef4444' }]} />
-            <View style={{ flex: 1 }}>
-              <Text style={s.stopLbl}>DELIVERING TO</Text>
-              <Text style={s.jobAddr}>{activeJob.to}</Text>
+
+          {activeJob.notes ? (
+            <View style={s.notesCard}>
+              <Ionicons name="chatbubble-outline" size={15} color={LIME} />
+              <Text style={s.notesTxt}>{activeJob.notes}</Text>
             </View>
-          </View>
-        </View>
+          ) : null}
 
-        {/* Delivery notes — shown if customer left any */}
-        {activeJob.notes ? (
-          <View style={s.notesCard}>
-            <Ionicons name="chatbubble-outline" size={15} color={LIME} />
-            <Text style={s.notesTxt}>{activeJob.notes}</Text>
+          <View style={s.pinEntryCard}>
+            <Text style={s.pinEntryLabel}>CONFIRM DELIVERY</Text>
+            <Text style={s.pinEntryHint}>Ask the recipient for their 3-digit PIN</Text>
+            <TouchableOpacity style={s.pinBoxRow} onPress={() => pinInputRef.current?.focus()} activeOpacity={1}>
+              {[0, 1, 2].map(i => (
+                <View key={i} style={[
+                  s.pinBox,
+                  pinInput.length === i && s.pinBoxActive,
+                  pinError && s.pinBoxError,
+                ]}>
+                  <Text style={[s.pinDigit, pinError && { color: '#ef4444' }]}>
+                    {pinInput[i] || ''}
+                  </Text>
+                </View>
+              ))}
+            </TouchableOpacity>
+            <TextInput
+              ref={pinInputRef}
+              style={s.pinHiddenInput}
+              value={pinInput}
+              onChangeText={v => { setPinInput(v.replace(/\D/g, '').slice(0, 3)); setPinError(false); }}
+              keyboardType="numeric"
+              maxLength={3}
+            />
+            {pinError && <Text style={s.pinErrorTxt}>Incorrect PIN — try again</Text>}
           </View>
-        ) : null}
-
-        {/* 3-digit PIN entry */}
-        <View style={s.pinEntryCard}>
-          <Text style={s.pinEntryLabel}>CONFIRM DELIVERY</Text>
-          <Text style={s.pinEntryHint}>Ask the recipient for their 3-digit PIN</Text>
 
           <TouchableOpacity
-            style={s.pinBoxRow}
-            onPress={() => pinInputRef.current?.focus()}
-            activeOpacity={1}
+            style={[s.deliveredBtn, pinInput.length < 3 && { opacity: 0.4 }]}
+            onPress={confirmDelivery}
+            disabled={pinInput.length < 3}
+            activeOpacity={0.85}
           >
-            {[0, 1, 2].map(i => (
-              <View key={i} style={[
-                s.pinBox,
-                pinInput.length === i && s.pinBoxActive,
-                pinError && s.pinBoxError,
-              ]}>
-                <Text style={[s.pinDigit, pinError && { color: '#ef4444' }]}>
-                  {pinInput[i] || ''}
-                </Text>
-              </View>
-            ))}
+            <Ionicons name="checkmark-circle-outline" size={22} color={BG} />
+            <Text style={s.deliveredBtnTxt}>Confirm Delivery</Text>
           </TouchableOpacity>
 
-          {/* Hidden input that actually captures keypresses */}
-          <TextInput
-            ref={pinInputRef}
-            style={s.pinHiddenInput}
-            value={pinInput}
-            onChangeText={v => {
-              setPinInput(v.replace(/\D/g, '').slice(0, 3));
-              setPinError(false);
-            }}
-            keyboardType="numeric"
-            maxLength={3}
-          />
+          <TouchableOpacity style={s.backToHomeBtn} onPress={() => { stopLocationBroadcast(); setView('home'); }} activeOpacity={0.7}>
+            <Text style={s.backToHomeTxt}>Back to Dashboard</Text>
+          </TouchableOpacity>
 
-          {pinError && <Text style={s.pinErrorTxt}>Incorrect PIN — try again</Text>}
-        </View>
+        </ScrollView>
+      )}
 
-        <TouchableOpacity
-          style={[s.deliveredBtn, pinInput.length < 3 && { opacity: 0.4 }]}
-          onPress={confirmDelivery}
-          disabled={pinInput.length < 3}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="checkmark-circle-outline" size={22} color={BG} />
-          <Text style={s.deliveredBtnTxt}>Confirm Delivery</Text>
-        </TouchableOpacity>
+      {/* ── HOME ── */}
+      {view === 'home' && (
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
-        <TouchableOpacity style={s.backToHomeBtn} onPress={() => { stopLocationBroadcast(); setView('home'); }} activeOpacity={0.7}>
-          <Text style={s.backToHomeTxt}>Back to Dashboard</Text>
-        </TouchableOpacity>
-
-      </ScrollView>
-      {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
-    </View>
-  );
-
-  // ── HOME ──────────────────────────────────────────────────────────────
-
-  if (view === 'home') return (
-    <View style={s.container}>
-      <StatusBar style="light" />
-      <TopBar />
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-
-        <View style={s.greeting}>
-          <View>
-            <Text style={s.greetLabel}>RIDER DASHBOARD</Text>
-            <Text style={s.greetTitle}>Ready to{'\n'}earn?</Text>
+          <View style={s.greeting}>
+            <View>
+              <Text style={s.greetLabel}>RIDER DASHBOARD</Text>
+              <Text style={s.greetTitle}>Ready to{'\n'}earn?</Text>
+            </View>
+            <View style={s.ratingPill}>
+              <Ionicons name="star" size={13} color={AMBER} />
+              <Text style={s.ratingTxt}>4.9</Text>
+            </View>
           </View>
-          <View style={s.ratingPill}>
-            <Ionicons name="star" size={13} color={AMBER} />
-            <Text style={s.ratingTxt}>4.9</Text>
-          </View>
-        </View>
 
-        <View style={s.statsRow}>
-          {[
-            { val: trips,          label: 'Trips',  color: '#fff' },
-            { val: `R${earnings}`, label: 'Today',  color: LIME  },
-            { val: '4.9',          label: 'Rating', color: GREEN },
-          ].map((stat, i) => (
-            <View key={i} style={s.statCard}>
-              <Text style={[s.statVal, { color: stat.color }]}>{stat.val}</Text>
-              <Text style={s.statLabel}>{stat.label}</Text>
+          <View style={s.statsRow}>
+            {[
+              { val: trips,          label: 'Trips',  color: '#fff' },
+              { val: `R${earnings}`, label: 'Today',  color: LIME  },
+              { val: '4.9',          label: 'Rating', color: GREEN },
+            ].map((stat, i) => (
+              <View key={i} style={s.statCard}>
+                <Text style={[s.statVal, { color: stat.color }]}>{stat.val}</Text>
+                <Text style={s.statLabel}>{stat.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            style={[s.onlineCard, online && s.onlineCardActive]}
+            onPress={() => setOnline(!online)}
+            activeOpacity={0.85}
+          >
+            <View style={s.onlineInner}>
+              {online && <><PulseRing delay={0} size={110} /><PulseRing delay={800} size={110} /></>}
+              <View style={[s.onlineCircle, online && s.onlineCircleActive]}>
+                <Ionicons name={online ? 'bicycle' : 'bicycle-outline'} size={34} color={online ? BG : LIME} />
+              </View>
+            </View>
+            <Text style={[s.onlineTitle, online && s.onlineTitleActive]}>
+              {online ? "You're Online" : 'Go Online'}
+            </Text>
+            <Text style={s.onlineSub}>
+              {online ? 'Taking orders · tap to go offline' : 'Tap to start accepting orders'}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={s.quickGrid}>
+            {[
+              { icon: 'wallet-outline',      label: 'Earnings',    color: LIME,      onPress: () => setView('earnings') },
+              { icon: 'trending-up-outline', label: 'Performance', color: '#3b82f6', onPress: () => {} },
+              { icon: 'time-outline',        label: 'History',     color: AMBER,     onPress: () => {} },
+              { icon: 'headset-outline',     label: 'Support',     color: '#a78bfa', onPress: () => {} },
+            ].map((t, i) => (
+              <TouchableOpacity key={i} style={s.quickTile} onPress={t.onPress} activeOpacity={0.7}>
+                <View style={[s.quickIcon, { backgroundColor: t.color + '15' }]}>
+                  <Ionicons name={t.icon} size={22} color={t.color} />
+                </View>
+                <Text style={s.quickLabel}>{t.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {online && jobs.length > 0 && (
+            <>
+              <View style={s.sectionHeader}>
+                <Text style={s.sectionLabel}>Nearby Orders</Text>
+                <TouchableOpacity onPress={() => setView('jobs')}>
+                  <Text style={s.sectionLink}>See all →</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity style={s.jobPreview} onPress={() => setView('jobs')} activeOpacity={0.8}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.jobPreviewPay}>R {jobs[0].pay}</Text>
+                  <Text style={s.jobPreviewRoute}>{jobs[0].from} → {jobs[0].to}</Text>
+                  <Text style={s.jobPreviewMeta}>{jobs[0].km} km · ~{jobs[0].time} min</Text>
+                </View>
+                <TouchableOpacity style={s.acceptPill} onPress={() => acceptJob(jobs[0])}>
+                  <Text style={s.acceptPillTxt}>Accept</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {online && jobs.length === 0 && (
+            <View style={s.emptyState}>
+              <Text style={s.emptyIcon}>🏍️</Text>
+              <Text style={s.emptyTitle}>Watching for orders…</Text>
+              <Text style={s.emptySub}>New jobs will appear here</Text>
+            </View>
+          )}
+
+        </ScrollView>
+      )}
+
+      {/* ── JOB LIST ── */}
+      {view === 'jobs' && (
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
+            <Ionicons name="arrow-back" size={18} color={GREY} />
+            <Text style={s.backTxt}>Back</Text>
+          </TouchableOpacity>
+          <Text style={s.pageTitle}>Orders <Text style={{ color: LIME }}>Near You</Text></Text>
+          {jobs.length === 0 && (
+            <View style={s.emptyState}>
+              <Text style={s.emptyIcon}>🏍️</Text>
+              <Text style={s.emptyTitle}>No orders right now</Text>
+              <Text style={s.emptySub}>Stay online — orders will appear here</Text>
+            </View>
+          )}
+          {jobs.map(job => (
+            <View key={job.id} style={s.jobCard}>
+              <View style={s.jobCardTop}>
+                <Text style={s.jobPay}>R {job.pay}</Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={s.jobKm}>{job.km} km</Text>
+                  <Text style={s.jobTime}>~{job.time} min</Text>
+                </View>
+              </View>
+              <View style={s.jobRoute}>
+                <View style={s.jobStop}>
+                  <View style={[s.jobDot, { backgroundColor: LIME }]} />
+                  <Text style={s.jobAddr}>{job.from}</Text>
+                </View>
+                <View style={s.jobConnector} />
+                <View style={s.jobStop}>
+                  <View style={[s.jobDot, { backgroundColor: '#ef4444' }]} />
+                  <Text style={s.jobAddr}>{job.to}</Text>
+                </View>
+              </View>
+              <View style={s.jobActions}>
+                <TouchableOpacity style={s.acceptBtn} onPress={() => acceptJob(job)}>
+                  <Text style={s.acceptBtnTxt}>Accept · R {job.pay}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.skipBtn} onPress={() => skipJob(job.id)}>
+                  <Text style={s.skipBtnTxt}>Skip</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ))}
-        </View>
+        </ScrollView>
+      )}
 
-        <TouchableOpacity
-          style={[s.onlineCard, online && s.onlineCardActive]}
-          onPress={() => setOnline(!online)}
-          activeOpacity={0.85}
-        >
-          <View style={s.onlineInner}>
-            {online && <><PulseRing delay={0} size={110} /><PulseRing delay={800} size={110} /></>}
-            <View style={[s.onlineCircle, online && s.onlineCircleActive]}>
-              <Ionicons name={online ? 'bicycle' : 'bicycle-outline'} size={34} color={online ? BG : LIME} />
+      {/* ── EARNINGS ── */}
+      {view === 'earnings' && (
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
+            <Ionicons name="arrow-back" size={18} color={GREY} />
+            <Text style={s.backTxt}>Back</Text>
+          </TouchableOpacity>
+          <Text style={s.pageTitle}>Earnings</Text>
+
+          <View style={s.earnHero}>
+            <Text style={s.earnLabel}>TODAY</Text>
+            <Text style={s.earnAmt}>R {earnings}</Text>
+            <Text style={s.earnSub}>{trips} {trips === 1 ? 'delivery' : 'deliveries'}</Text>
+            <View style={s.cashRow}>
+              <TouchableOpacity style={s.cashInstant}>
+                <Ionicons name="flash" size={15} color={BG} />
+                <Text style={s.cashInstantTxt}>Instant Cashout</Text>
+                <Text style={s.cashInstantSub}>~5 min</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.cashEod}>
+                <Ionicons name="time-outline" size={15} color='#aaa' />
+                <Text style={s.cashEodTxt}>End of Day</Text>
+                <Text style={s.cashEodSub}>Auto 22:00</Text>
+              </TouchableOpacity>
             </View>
           </View>
-          <Text style={[s.onlineTitle, online && s.onlineTitleActive]}>
-            {online ? "You're Online" : 'Go Online'}
-          </Text>
-          <Text style={s.onlineSub}>
-            {online ? 'Taking orders · tap to go offline' : 'Tap to start accepting orders'}
-          </Text>
-        </TouchableOpacity>
 
-        <View style={s.quickGrid}>
-          {[
-            { icon: 'wallet-outline',      label: 'Earnings',    color: LIME,      onPress: () => setView('earnings') },
-            { icon: 'trending-up-outline', label: 'Performance', color: '#3b82f6', onPress: () => {} },
-            { icon: 'time-outline',        label: 'History',     color: AMBER,     onPress: () => {} },
-            { icon: 'headset-outline',     label: 'Support',     color: '#a78bfa', onPress: () => {} },
-          ].map((t, i) => (
-            <TouchableOpacity key={i} style={s.quickTile} onPress={t.onPress} activeOpacity={0.7}>
-              <View style={[s.quickIcon, { backgroundColor: t.color + '15' }]}>
-                <Ionicons name={t.icon} size={22} color={t.color} />
+          <Text style={s.sectionLabel}>This Week</Text>
+          {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day, i) => (
+            <View key={i} style={s.earnRow}>
+              <Text style={s.earnDay}>{day}</Text>
+              <View style={s.earnBarBg}>
+                <View style={[s.earnBarFill, { width: `${Math.round((weekAmts[i] / maxAmt) * 100)}%` }]} />
               </View>
-              <Text style={s.quickLabel}>{t.label}</Text>
-            </TouchableOpacity>
+              <Text style={s.earnDayAmt}>R {weekAmts[i]}</Text>
+            </View>
           ))}
-        </View>
+        </ScrollView>
+      )}
 
-        {online && jobs.length > 0 && (
-          <>
-            <View style={s.sectionHeader}>
-              <Text style={s.sectionLabel}>Nearby Orders</Text>
-              <TouchableOpacity onPress={() => setView('jobs')}>
-                <Text style={s.sectionLink}>See all →</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity style={s.jobPreview} onPress={() => setView('jobs')} activeOpacity={0.8}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.jobPreviewPay}>R {jobs[0].pay}</Text>
-                <Text style={s.jobPreviewRoute}>{jobs[0].from} → {jobs[0].to}</Text>
-                <Text style={s.jobPreviewMeta}>{jobs[0].km} km · ~{jobs[0].time} min</Text>
-              </View>
-              <TouchableOpacity style={s.acceptPill} onPress={() => acceptJob(jobs[0])}>
-                <Text style={s.acceptPillTxt}>Accept</Text>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          </>
-        )}
+      {/* ── Bottom bar (hidden during active delivery) ── */}
+      {view !== 'active' && (
+        <BottomBar active={activeTab} role="rider" onPress={handleBottomBar} />
+      )}
 
-        {online && jobs.length === 0 && (
-          <View style={s.emptyState}>
-            <Text style={s.emptyIcon}>🏍️</Text>
-            <Text style={s.emptyTitle}>Watching for orders…</Text>
-            <Text style={s.emptySub}>New jobs will appear here</Text>
-          </View>
-        )}
-
-      </ScrollView>
-      <BottomBar active={activeTab} role="rider" onPress={handleBottomBar} />
-      {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
-    </View>
-  );
-
-  // ── JOB LIST ──────────────────────────────────────────────────────────
-  if (view === 'jobs') return (
-    <View style={s.container}>
-      <StatusBar style="light" />
-      <TopBar />
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
-          <Ionicons name="arrow-back" size={18} color={GREY} />
-          <Text style={s.backTxt}>Back</Text>
-        </TouchableOpacity>
-        <Text style={s.pageTitle}>Orders <Text style={{ color: LIME }}>Near You</Text></Text>
-        {jobs.length === 0 && (
-          <View style={s.emptyState}>
-            <Text style={s.emptyIcon}>🏍️</Text>
-            <Text style={s.emptyTitle}>No orders right now</Text>
-            <Text style={s.emptySub}>Stay online — orders will appear here</Text>
-          </View>
-        )}
-        {jobs.map(job => (
-
-          <View key={job.id} style={s.jobCard}>
-            <View style={s.jobCardTop}>
-              <Text style={s.jobPay}>R {job.pay}</Text>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={s.jobKm}>{job.km} km</Text>
-                <Text style={s.jobTime}>~{job.time} min</Text>
-              </View>
-            </View>
-            <View style={s.jobRoute}>
-              <View style={s.jobStop}>
-                <View style={[s.jobDot, { backgroundColor: LIME }]} />
-                <Text style={s.jobAddr}>{job.from}</Text>
-              </View>
-              <View style={s.jobConnector} />
-              <View style={s.jobStop}>
-                <View style={[s.jobDot, { backgroundColor: '#ef4444' }]} />
-                <Text style={s.jobAddr}>{job.to}</Text>
-              </View>
-            </View>
-            <View style={s.jobActions}>
-              <TouchableOpacity style={s.acceptBtn} onPress={() => acceptJob(job)}>
-                <Text style={s.acceptBtnTxt}>Accept · R {job.pay}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.skipBtn} onPress={() => skipJob(job.id)}>
-                <Text style={s.skipBtnTxt}>Skip</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))}
-      </ScrollView>
-      <BottomBar active="jobs" role="rider" onPress={handleBottomBar} />
-      {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
-    </View>
-  );
-
-  // ── EARNINGS ──────────────────────────────────────────────────────────
-  if (view === 'earnings') return (
-    <View style={s.container}>
-      <StatusBar style="light" />
-      <TopBar />
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
-          <Ionicons name="arrow-back" size={18} color={GREY} />
-          <Text style={s.backTxt}>Back</Text>
-        </TouchableOpacity>
-        <Text style={s.pageTitle}>Earnings</Text>
-
-        <View style={s.earnHero}>
-          <Text style={s.earnLabel}>TODAY</Text>
-          <Text style={s.earnAmt}>R {earnings}</Text>
-          <Text style={s.earnSub}>{trips} {trips === 1 ? 'delivery' : 'deliveries'}</Text>
-          <View style={s.cashRow}>
-            <TouchableOpacity style={s.cashInstant}>
-              <Ionicons name="flash" size={15} color={BG} />
-              <Text style={s.cashInstantTxt}>Instant Cashout</Text>
-              <Text style={s.cashInstantSub}>~5 min</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.cashEod}>
-              <Ionicons name="time-outline" size={15} color='#aaa' />
-              <Text style={s.cashEodTxt}>End of Day</Text>
-              <Text style={s.cashEodSub}>Auto 22:00</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <Text style={s.sectionLabel}>This Week</Text>
-        {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day, i) => (
-          <View key={i} style={s.earnRow}>
-            <Text style={s.earnDay}>{day}</Text>
-            <View style={s.earnBarBg}>
-              <View style={[s.earnBarFill, { width: `${Math.round((weekAmts[i] / maxAmt) * 100)}%` }]} />
-            </View>
-            <Text style={s.earnDayAmt}>R {weekAmts[i]}</Text>
-          </View>
-        ))}
-      </ScrollView>
-      <BottomBar active="earnings" role="rider" onPress={handleBottomBar} />
+      {/* ── Toast ── */}
       {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
     </View>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────
+
+const jb = StyleSheet.create({
+  wrap: {
+    position: 'absolute', top: 82, left: 16, right: 16, zIndex: 300,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5, shadowRadius: 20, elevation: 20,
+  },
+  inner: {
+    flexDirection: 'row', backgroundColor: '#141414',
+    borderRadius: 20, overflow: 'hidden',
+    borderWidth: 1, borderColor: '#222',
+  },
+  accent: { width: 4, backgroundColor: LIME },
+  body: { flex: 1, padding: 16 },
+  badge: {
+    alignSelf: 'flex-start', backgroundColor: LIME + '20',
+    borderWidth: 1, borderColor: LIME + '40',
+    borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 10,
+  },
+  badgeTxt: { fontSize: 9, fontWeight: '900', color: LIME, letterSpacing: 2 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  pay: { fontSize: 28, fontWeight: '900', color: '#22c55e', marginBottom: 2 },
+  route: { fontSize: 13, fontWeight: '700', color: '#fff', marginBottom: 2 },
+  meta: { fontSize: 12, color: GREY },
+  actions: { gap: 8, alignItems: 'center' },
+  acceptBtn: {
+    backgroundColor: LIME, borderRadius: 14,
+    paddingHorizontal: 16, paddingVertical: 10,
+  },
+  acceptTxt: { fontSize: 14, fontWeight: '900', color: BG },
+  closeBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#1e1e1e', alignItems: 'center', justifyContent: 'center',
+  },
+});
+
+const sos = StyleSheet.create({
+  btn: {
+    position: 'absolute', top: 54, right: 20, zIndex: 200,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: '#ef4444', borderRadius: 20,
+    paddingHorizontal: 13, paddingVertical: 7,
+    shadowColor: '#ef4444', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.55, shadowRadius: 10, elevation: 10,
+  },
+  btnTxt: { fontSize: 13, fontWeight: '900', color: '#fff', letterSpacing: 1 },
+
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.88)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: '#141414', borderTopLeftRadius: 32, borderTopRightRadius: 32,
+    padding: 28, paddingBottom: 48,
+  },
+  bar: { width: 36, height: 4, backgroundColor: '#2a2a2a', borderRadius: 2, alignSelf: 'center', marginBottom: 24 },
+
+  header: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 28 },
+  headerIcon: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  title: { fontSize: 22, fontWeight: '900', color: '#fff', marginBottom: 3 },
+  sub: { fontSize: 13, color: '#666' },
+
+  row: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 },
+  iconWrap: { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  rowText: { flex: 1 },
+  rowLabel: { fontSize: 15, fontWeight: '800', color: '#fff', marginBottom: 2 },
+  rowDesc: { fontSize: 12, color: '#555', fontWeight: '500' },
+  callBtn: {
+    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10,
+    alignItems: 'center', minWidth: 64,
+  },
+  callBtnTxt: { fontSize: 13, fontWeight: '900', color: '#fff' },
+
+  note: { fontSize: 12, color: '#444', textAlign: 'center', marginVertical: 16 },
+  closeBtn: {
+    backgroundColor: '#1a1a1a', borderRadius: 16, height: 52,
+    alignItems: 'center', justifyContent: 'center', marginTop: 4,
+  },
+  closeBtnTxt: { fontSize: 15, fontWeight: '800', color: '#666' },
+});
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
@@ -604,14 +850,37 @@ const s = StyleSheet.create({
   activeHeroSub: { fontSize: 13, color: '#5a8020', fontWeight: '600', marginTop: 4 },
   deliveredBtn: {
     backgroundColor: LIME, borderRadius: 18, height: 60,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
-    marginTop: 24,
-    shadowColor: LIME, shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35, shadowRadius: 24, elevation: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 24,
+    shadowColor: LIME, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 24, elevation: 12,
   },
   deliveredBtnTxt: { fontSize: 17, fontWeight: '900', color: BG },
   backToHomeBtn: { alignItems: 'center', paddingVertical: 16 },
   backToHomeTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
+
+  // Notes
+  notesCard: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    backgroundColor: 'rgba(200,240,0,0.06)', borderWidth: 1,
+    borderColor: 'rgba(200,240,0,0.18)', borderRadius: 16,
+    padding: 14, marginBottom: 16,
+  },
+  notesTxt: { flex: 1, fontSize: 13, color: '#ccc', fontWeight: '500', lineHeight: 20 },
+
+  // PIN entry
+  pinEntryCard: { backgroundColor: SURFACE, borderRadius: 20, padding: 20, alignItems: 'center', marginBottom: 20 },
+  pinEntryLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 6 },
+  pinEntryHint: { fontSize: 13, color: GREY, marginBottom: 20 },
+  pinBoxRow: { flexDirection: 'row', gap: 12, marginBottom: 4 },
+  pinBox: {
+    width: 64, height: 72, borderRadius: 16,
+    backgroundColor: '#0e0e0e', borderWidth: 2, borderColor: '#2a2a2a',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pinBoxActive: { borderColor: LIME },
+  pinBoxError: { borderColor: '#ef4444' },
+  pinDigit: { fontSize: 36, fontWeight: '900', color: '#fff' },
+  pinHiddenInput: { position: 'absolute', opacity: 0, width: 1, height: 1 },
+  pinErrorTxt: { fontSize: 12, color: '#ef4444', fontWeight: '600', marginTop: 8 },
 
   // Earnings
   earnHero: { backgroundColor: 'rgba(200,240,0,0.07)', borderWidth: 1, borderColor: 'rgba(200,240,0,0.12)', borderRadius: 24, padding: 24, alignItems: 'center', marginBottom: 28 },
@@ -639,32 +908,4 @@ const s = StyleSheet.create({
     shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
   },
   toastTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
-
-  // Notes card
-  notesCard: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
-    backgroundColor: 'rgba(200,240,0,0.06)', borderWidth: 1,
-    borderColor: 'rgba(200,240,0,0.18)', borderRadius: 16,
-    padding: 14, marginBottom: 16,
-  },
-  notesTxt: { flex: 1, fontSize: 13, color: '#ccc', fontWeight: '500', lineHeight: 20 },
-
-  // PIN entry
-  pinEntryCard: {
-    backgroundColor: SURFACE, borderRadius: 20, padding: 20,
-    alignItems: 'center', marginBottom: 20,
-  },
-  pinEntryLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 6 },
-  pinEntryHint: { fontSize: 13, color: GREY, marginBottom: 20 },
-  pinBoxRow: { flexDirection: 'row', gap: 12, marginBottom: 4 },
-  pinBox: {
-    width: 64, height: 72, borderRadius: 16,
-    backgroundColor: '#0e0e0e', borderWidth: 2, borderColor: '#2a2a2a',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  pinBoxActive: { borderColor: LIME },
-  pinBoxError: { borderColor: '#ef4444' },
-  pinDigit: { fontSize: 36, fontWeight: '900', color: '#fff' },
-  pinHiddenInput: { position: 'absolute', opacity: 0, width: 1, height: 1 },
-  pinErrorTxt: { fontSize: 12, color: '#ef4444', fontWeight: '600', marginTop: 8 },
 });

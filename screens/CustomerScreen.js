@@ -23,6 +23,23 @@ const RATE = 6.5;
 
 // ─── Geocoding ────────────────────────────────────────────────────────────
 
+async function fetchSuggestions(query) {
+  if (query.length < 2) return [];
+  try {
+    const q = encodeURIComponent(query + ', Cape Town, South Africa');
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=5`,
+      { headers: { 'User-Agent': 'RunIt/1.0' } }
+    );
+    const data = await res.json();
+    return data.map(item => ({
+      label: item.display_name.split(', ').slice(0, 4).join(', '),
+      lat: parseFloat(item.lat),
+      lon: parseFloat(item.lon),
+    }));
+  } catch (_) { return []; }
+}
+
 const geocodeCache = {};
 async function geocode(query) {
   const key = query.trim().toLowerCase();
@@ -225,7 +242,12 @@ export default function CustomerScreen({ navigation }) {
   const [toastMsg, setToastMsg] = useState('');
   const [userId, setUserId] = useState(null);
   const [focusedField, setFocusedField] = useState(null);
+  const [fromConfirmed, setFromConfirmed] = useState(false);
+  const [toConfirmed, setToConfirmed] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionField, setSuggestionField] = useState(null);
   const debounceRef = useRef(null);
+  const suggestDebounceRef = useRef(null);
   const orderSubRef = useRef(null);
   const riderLocSubRef = useRef(null);
 
@@ -233,6 +255,7 @@ export default function CustomerScreen({ navigation }) {
     supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id || null));
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
       orderSubRef.current?.unsubscribe();
       riderLocSubRef.current?.unsubscribe();
     };
@@ -263,6 +286,45 @@ export default function CustomerScreen({ navigation }) {
       }
       setCalculating(false);
     }, 700);
+  };
+
+  // Direct route calc when coords are already known (from a suggestion tap)
+  const calcRouteWithCoords = async (a, b, size) => {
+    setCalculating(true);
+    setDist(null); setPrice(null); setEta(null); setRouteCoords(null);
+    const route = await getRoute(a, b);
+    const p = Math.round((BASE + route.distKm * RATE) * (size === 'large' ? 1.4 : 1));
+    setFromCoords(a); setToCoords(b); setRouteCoords(route.coords);
+    setDist(route.distKm); setEta(route.durationMin); setPrice(p);
+    setCalculating(false);
+  };
+
+  const scheduleSuggestions = (query, field) => {
+    if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
+    if (query.length < 2) { setSuggestions([]); setSuggestionField(null); return; }
+    suggestDebounceRef.current = setTimeout(async () => {
+      const results = await fetchSuggestions(query);
+      setSuggestions(results);
+      setSuggestionField(results.length ? field : null);
+    }, 350);
+  };
+
+  const selectSuggestion = async (sug, field) => {
+    setSuggestions([]);
+    setSuggestionField(null);
+    if (field === 'from') {
+      setFrom(sug.label);
+      setFromConfirmed(true);
+      const a = { lat: sug.lat, lon: sug.lon };
+      setFromCoords(a);
+      if (toCoords) await calcRouteWithCoords(a, toCoords, packageSize);
+    } else {
+      setTo(sug.label);
+      setToConfirmed(true);
+      const b = { lat: sug.lat, lon: sug.lon };
+      setToCoords(b);
+      if (fromCoords) await calcRouteWithCoords(fromCoords, b, packageSize);
+    }
   };
 
   const handleSend = async () => {
@@ -352,6 +414,7 @@ export default function CustomerScreen({ navigation }) {
   const resetBooking = () => {
     setFrom(''); setTo(''); setPrice(null); setDist(null); setEta(null);
     setFromCoords(null); setToCoords(null); setRouteCoords(null);
+    setFromConfirmed(false); setToConfirmed(false);
     setPackageSize('small'); setNotes(''); setTip(0); setCustomTip('');
     setActiveOrderId(null); setOrderStatus('pending');
     setDeliveryPin(null); setRiderLocation(null);
@@ -419,15 +482,23 @@ export default function CustomerScreen({ navigation }) {
             <View style={s.addrRow}>
               <View style={[s.addrDot, { backgroundColor: LIME }]} />
               <View style={s.addrCol}>
-                <Text style={s.addrLbl}>Collecting from</Text>
+                <View style={s.addrLblRow}>
+                  <Text style={s.addrLbl}>Collecting from</Text>
+                  {fromConfirmed && (
+                    <View style={s.confirmedBadge}>
+                      <Ionicons name="checkmark" size={10} color={LIME} />
+                      <Text style={s.confirmedTxt}>confirmed</Text>
+                    </View>
+                  )}
+                </View>
                 <TextInput
                   style={[s.addrInput, focusedField === 'from' && { color: '#fff' }]}
                   placeholder="Area or street"
                   placeholderTextColor={MUTED}
                   value={from}
-                  onChangeText={v => { setFrom(v); scheduleCalc(v, to); }}
+                  onChangeText={v => { setFrom(v); setFromCoords(null); setFromConfirmed(false); scheduleCalc(v, to); scheduleSuggestions(v, 'from'); }}
                   onFocus={() => setFocusedField('from')}
-                  onBlur={() => setFocusedField(null)}
+                  onBlur={() => { setFocusedField(null); setTimeout(() => setSuggestions([]), 200); }}
                 />
               </View>
             </View>
@@ -435,19 +506,45 @@ export default function CustomerScreen({ navigation }) {
             <View style={s.addrRow}>
               <View style={[s.addrDot, { backgroundColor: '#ef4444' }]} />
               <View style={s.addrCol}>
-                <Text style={s.addrLbl}>Delivering to</Text>
+                <View style={s.addrLblRow}>
+                  <Text style={s.addrLbl}>Delivering to</Text>
+                  {toConfirmed && (
+                    <View style={s.confirmedBadge}>
+                      <Ionicons name="checkmark" size={10} color={LIME} />
+                      <Text style={s.confirmedTxt}>confirmed</Text>
+                    </View>
+                  )}
+                </View>
                 <TextInput
                   style={[s.addrInput, focusedField === 'to' && { color: '#fff' }]}
                   placeholder="Area or street"
                   placeholderTextColor={MUTED}
                   value={to}
-                  onChangeText={v => { setTo(v); scheduleCalc(from, v); }}
+                  onChangeText={v => { setTo(v); setToCoords(null); setToConfirmed(false); scheduleCalc(from, v); scheduleSuggestions(v, 'to'); }}
                   onFocus={() => setFocusedField('to')}
-                  onBlur={() => setFocusedField(null)}
+                  onBlur={() => { setFocusedField(null); setTimeout(() => setSuggestions([]), 200); }}
                 />
               </View>
             </View>
           </View>
+
+          {/* Address autocomplete suggestions */}
+          {suggestions.length > 0 && suggestionField && (
+            <View style={s.suggestCard}>
+              {suggestions.map((sug, i) => (
+                <TouchableOpacity
+                  key={i}
+                  style={[s.suggestRow, i < suggestions.length - 1 && s.suggestDivider]}
+                  onPress={() => selectSuggestion(sug, suggestionField)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="location-outline" size={15} color={LIME} style={{ flexShrink: 0 }} />
+                  <Text style={s.suggestTxt} numberOfLines={2}>{sug.label}</Text>
+                  <Ionicons name="chevron-forward" size={14} color={MUTED} style={{ flexShrink: 0 }} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           {calculating && (
             <View style={s.calcRow}>
@@ -716,13 +813,27 @@ const s = StyleSheet.create({
   addrRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 18, gap: 16 },
   addrDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
   addrCol: { flex: 1 },
-  addrLbl: { fontSize: 10, fontWeight: '700', color: MUTED, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 },
+  addrLblRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  addrLbl: { fontSize: 10, fontWeight: '700', color: MUTED, textTransform: 'uppercase', letterSpacing: 1.5 },
+  confirmedBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: LIME + '15', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
+  confirmedTxt: { fontSize: 9, fontWeight: '700', color: LIME, letterSpacing: 0.5 },
   addrInput: { fontSize: 17, fontWeight: '700', color: '#888', outlineStyle: 'none' },
   addrSep: { paddingLeft: 44, paddingRight: 20 },
   addrLine: { height: 1, backgroundColor: BORDER },
 
   calcRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
   calcTxt: { fontSize: 13, color: GREY, fontWeight: '600' },
+
+  suggestCard: {
+    backgroundColor: '#141414', borderRadius: 18, marginBottom: 12,
+    overflow: 'hidden', borderWidth: 1, borderColor: '#1e1e1e',
+  },
+  suggestRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 16, paddingVertical: 14,
+  },
+  suggestDivider: { borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
+  suggestTxt: { fontSize: 14, color: '#ccc', fontWeight: '600', flex: 1, lineHeight: 20 },
 
   routeCard: { backgroundColor: SURFACE, borderRadius: 20, padding: 20, marginBottom: 12, borderWidth: 1, borderColor: LIME + '20' },
   routeBar: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
