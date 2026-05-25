@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import WebView from 'react-native-webview';
 import { supabase } from '../supabase';
 import { signOut } from '../auth';
 import LogoMenu from './LogoMenu';
@@ -76,13 +77,11 @@ async function getRoute(a, b) {
   };
 }
 
-// ─── Leaflet map (web only) ───────────────────────────────────────────────
+// ─── Leaflet map HTML ─────────────────────────────────────────────────────
 
-function RouteMap({ fromCoords, toCoords, routeCoords, fromLabel, toLabel }) {
-  if (Platform.OS !== 'web') return null;
-
+function buildMapHtml(fromCoords, toCoords, routeCoords, fromLabel, toLabel) {
   const routeJson = JSON.stringify(routeCoords);
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
@@ -93,8 +92,14 @@ function RouteMap({ fromCoords, toCoords, routeCoords, fromLabel, toLabel }) {
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { width:100%; height:100%; background:#080808; }
 #map { width:100%; height:100%; }
-.leaflet-control-attribution { display:none; }
-.leaflet-control-zoom { display:none; }
+.leaflet-control-attribution,.leaflet-control-zoom { display:none; }
+.tip {
+  background:rgba(8,8,8,0.92); border:1px solid #1e1e1e;
+  color:#fff; font-size:11px; font-weight:700;
+  font-family:-apple-system,sans-serif;
+  padding:4px 10px; border-radius:20px; white-space:nowrap; box-shadow:none;
+}
+.tip::before { display:none; }
 </style>
 </head>
 <body>
@@ -102,57 +107,46 @@ html, body { width:100%; height:100%; background:#080808; }
 <script>
 const map = L.map('map', { zoomControl:false, attributionControl:false });
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom:18 }).addTo(map);
-
 const routeCoords = ${routeJson};
 const A = [${fromCoords.lat}, ${fromCoords.lon}];
 const B = [${toCoords.lat}, ${toCoords.lon}];
-
-// Route line
 L.polyline(routeCoords, { color:'#c8f000', weight:3, opacity:0.85 }).addTo(map);
-
-// Subtle route glow
 L.polyline(routeCoords, { color:'#c8f000', weight:8, opacity:0.12 }).addTo(map);
-
-// Pickup marker
-const iconA = L.divIcon({
-  html: '<div style="width:16px;height:16px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(200,240,0,0.7)"></div>',
-  iconSize:[16,16], iconAnchor:[8,8], className:''
-});
-// Drop-off marker
-const iconB = L.divIcon({
-  html: '<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(239,68,68,0.6)"></div>',
-  iconSize:[16,16], iconAnchor:[8,8], className:''
-});
-
-L.marker(A, { icon:iconA }).bindTooltip('${fromLabel.replace(/'/g,"\\'")}', { permanent:true, direction:'top', className:'tip', offset:[0,-10] }).addTo(map);
-L.marker(B, { icon:iconB }).bindTooltip('${toLabel.replace(/'/g,"\\'")}', { permanent:true, direction:'bottom', className:'tip', offset:[0,10] }).addTo(map);
-
+const iconA = L.divIcon({ html:'<div style="width:16px;height:16px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(200,240,0,0.7)"></div>', iconSize:[16,16], iconAnchor:[8,8], className:'' });
+const iconB = L.divIcon({ html:'<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(239,68,68,0.6)"></div>', iconSize:[16,16], iconAnchor:[8,8], className:'' });
+L.marker(A, { icon:iconA }).bindTooltip('${fromLabel.replace(/'/g, "\\'")}', { permanent:true, direction:'top', className:'tip', offset:[0,-10] }).addTo(map);
+L.marker(B, { icon:iconB }).bindTooltip('${toLabel.replace(/'/g, "\\'")}', { permanent:true, direction:'bottom', className:'tip', offset:[0,10] }).addTo(map);
 map.fitBounds(L.latLngBounds([A, B]).pad(0.35));
 </script>
-<style>
-.tip {
-  background: rgba(8,8,8,0.92);
-  border: 1px solid #1e1e1e;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  font-family: -apple-system, sans-serif;
-  padding: 4px 10px;
-  border-radius: 20px;
-  white-space: nowrap;
-  box-shadow: none;
-}
-.tip::before { display:none; }
-</style>
 </body>
 </html>`;
+}
+
+// ─── Route map — works on both web and native via WebView ────────────────
+
+function RouteMap({ fromCoords, toCoords, routeCoords, fromLabel, toLabel }) {
+  if (!fromCoords || !toCoords || !routeCoords) return null;
+  const html = buildMapHtml(fromCoords, toCoords, routeCoords, fromLabel, toLabel);
+
+  if (Platform.OS === 'web') {
+    return (
+      <View style={s.mapCard}>
+        <iframe
+          srcDoc={html}
+          style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+          sandbox="allow-scripts"
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={s.mapCard}>
-      <iframe
-        srcDoc={html}
-        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
-        sandbox="allow-scripts"
+      <WebView
+        source={{ html }}
+        style={{ flex: 1, backgroundColor: BG }}
+        scrollEnabled={false}
+        originWhitelist={['*']}
       />
     </View>
   );
@@ -169,7 +163,7 @@ function RouteVisual({ from, to, dist, eta }) {
       Animated.timing(slide, { toValue: 0, duration: 320, useNativeDriver: false }),
     ]).start();
   }, []);
-  const short = (s) => (s.length > 16 ? s.slice(0, 14) + '…' : s);
+  const short = (str) => (str.length > 16 ? str.slice(0, 14) + '…' : str);
   return (
     <Animated.View style={[s.routeCard, { opacity: fade, transform: [{ translateY: slide }] }]}>
       <View style={s.routeBar}>
@@ -254,21 +248,28 @@ export default function CustomerScreen({ navigation }) {
   const [toCoords, setToCoords] = useState(null);
   const [routeCoords, setRouteCoords] = useState(null);
   const [calculating, setCalculating] = useState(false);
-  const [trackEta, setTrackEta] = useState(12);
+  // Real order tracking
+  const [activeOrderId, setActiveOrderId] = useState(null);
+  const [orderStatus, setOrderStatus] = useState('pending');
   const [loading, setLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [userId, setUserId] = useState(null);
   const [focusedField, setFocusedField] = useState(null);
   const debounceRef = useRef(null);
-  const etaRef = useRef(null);
+  const orderSubRef = useRef(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id || null));
+    // Cleanup on unmount
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      orderSubRef.current?.unsubscribe();
+    };
   }, []);
 
   const showToast = (msg) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(''), 3000);
+    setTimeout(() => setToastMsg(''), 3500);
   };
 
   const scheduleCalc = (f, t, size = packageSize) => {
@@ -300,28 +301,78 @@ export default function CustomerScreen({ navigation }) {
   const handleSend = async () => {
     if (!from || !to) { Alert.alert('Missing Info', 'Enter pickup and drop-off'); return; }
     setLoading(true);
-    const { error } = await supabase.from('orders').insert([{
-      from_address: from, to_address: to, price,
-      status: 'pending', user_id: userId, package_size: packageSize,
-    }]);
+
+    const { data: insertData, error } = await supabase
+      .from('orders')
+      .insert([{
+        from_address: from,
+        to_address: to,
+        price,
+        status: 'pending',
+        user_id: userId,
+        package_size: packageSize,
+        dist_km: dist,
+      }])
+      .select('id')
+      .single();
+
     setLoading(false);
     if (error) { Alert.alert('Error', error.message); return; }
+
+    const orderId = insertData?.id;
+    setActiveOrderId(orderId);
+    setOrderStatus('pending');
+
+    // Subscribe to real-time status updates for this specific order
+    if (orderId) {
+      orderSubRef.current?.unsubscribe();
+      const channel = supabase.channel(`order_${orderId}`)
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `id=eq.${orderId}`,
+        }, (payload) => {
+          const newStatus = payload.new.status;
+          setOrderStatus(newStatus);
+          if (newStatus === 'on_the_way') {
+            showToast('🏍️  Rider is on the way!');
+          }
+          if (newStatus === 'delivered') {
+            showToast('Delivered! 🎉');
+          }
+        })
+        .subscribe();
+      orderSubRef.current = channel;
+    }
+
     setScreen('tracking');
-    let e = 12;
-    setTrackEta(e);
-    etaRef.current = setInterval(() => {
-      e--;
-      setTrackEta(Math.max(0, e));
-      if (e <= 0) { clearInterval(etaRef.current); showToast('Delivered! 🎉'); }
-    }, 3000);
   };
 
-  const cancelOrder = () => {
-    clearInterval(etaRef.current);
+  const cancelOrder = async () => {
+    // Only allow cancel while still pending
+    if (activeOrderId && orderStatus === 'pending') {
+      await supabase.from('orders').update({ status: 'cancelled' }).eq('id', activeOrderId);
+    }
+    orderSubRef.current?.unsubscribe();
+    orderSubRef.current = null;
     setScreen('home');
     setFrom(''); setTo(''); setPrice(null); setDist(null); setEta(null);
     setFromCoords(null); setToCoords(null); setRouteCoords(null);
     setPackageSize('small');
+    setActiveOrderId(null);
+    setOrderStatus('pending');
+  };
+
+  const newOrder = () => {
+    orderSubRef.current?.unsubscribe();
+    orderSubRef.current = null;
+    setScreen('home');
+    setFrom(''); setTo(''); setPrice(null); setDist(null); setEta(null);
+    setFromCoords(null); setToCoords(null); setRouteCoords(null);
+    setPackageSize('small');
+    setActiveOrderId(null);
+    setOrderStatus('pending');
   };
 
   const handleSignOut = async () => {
@@ -487,23 +538,39 @@ export default function CustomerScreen({ navigation }) {
 
   // ── TRACKING ──────────────────────────────────────────────────────────
   if (screen === 'tracking') {
-    const delivered = trackEta === 0;
+    const finding   = orderStatus === 'pending';
+    const onTheWay  = orderStatus === 'on_the_way';
+    const delivered = orderStatus === 'delivered';
+
+    const statusLabel = finding ? 'Finding Rider' : onTheWay ? 'On the Way' : 'Delivered';
+
     return (
       <View style={s.container}>
         <StatusBar style="light" />
         {logoMenu}
         <View style={s.trackContent}>
-          <Text style={s.trackStatus}>{delivered ? 'Delivered' : 'On the Way'}</Text>
 
+          <Text style={s.trackStatus}>{statusLabel}</Text>
+
+          {/* Main circle */}
           <View style={s.trackBtnWrap}>
             {!delivered && <PulseRing delay={0} size={240} />}
             {!delivered && <PulseRing delay={800} size={240} />}
             <View style={[s.trackCircle, delivered && s.trackCircleDone]}>
-              <Text style={s.trackEta}>{delivered ? '✓' : trackEta}</Text>
-              {!delivered && <Text style={s.trackEtaUnit}>min</Text>}
+              {delivered ? (
+                <Text style={s.trackEta}>✓</Text>
+              ) : onTheWay && eta ? (
+                <>
+                  <Text style={s.trackEta}>{eta}</Text>
+                  <Text style={s.trackEtaUnit}>est. min</Text>
+                </>
+              ) : (
+                <ActivityIndicator color={BG} size="large" />
+              )}
             </View>
           </View>
 
+          {/* Route summary */}
           {dist && (
             <View style={s.trackRoute}>
               <View style={s.trackRouteRow}>
@@ -522,23 +589,62 @@ export default function CustomerScreen({ navigation }) {
             </View>
           )}
 
-          <View style={s.driverCard}>
-            <View style={s.driverAvatar}>
-              <Text style={s.driverAvatarTxt}>SM</Text>
+          {/* Status card */}
+          {finding && (
+            <View style={s.driverCard}>
+              <View style={[s.driverAvatar, { backgroundColor: SURFACE2 }]}>
+                <ActivityIndicator color={LIME} size="small" />
+              </View>
+              <View style={s.driverInfo}>
+                <Text style={s.driverName}>Matching your order…</Text>
+                <Text style={s.driverBike}>A nearby rider will accept shortly</Text>
+              </View>
             </View>
-            <View style={s.driverInfo}>
-              <Text style={s.driverName}>Sipho M.</Text>
-              <Text style={s.driverBike}>🏍️ Honda CB · CT 4521</Text>
-            </View>
-            <View style={s.driverRating}>
-              <Ionicons name="star" size={12} color="#f59e0b" />
-              <Text style={s.driverRatingTxt}>4.9</Text>
-            </View>
-          </View>
+          )}
 
-          <TouchableOpacity onPress={cancelOrder} style={s.cancelBtn}>
-            <Text style={s.cancelTxt}>Cancel Order</Text>
-          </TouchableOpacity>
+          {onTheWay && (
+            <View style={s.driverCard}>
+              <View style={s.driverAvatar}>
+                <Text style={s.driverAvatarTxt}>🏍</Text>
+              </View>
+              <View style={s.driverInfo}>
+                <Text style={s.driverName}>Rider En Route</Text>
+                <Text style={s.driverBike}>Heading to your pickup address</Text>
+              </View>
+              <View style={s.driverRating}>
+                <Ionicons name="star" size={12} color="#f59e0b" />
+                <Text style={s.driverRatingTxt}>4.9</Text>
+              </View>
+            </View>
+          )}
+
+          {delivered && (
+            <View style={[s.driverCard, { borderColor: LIME + '30', borderWidth: 1 }]}>
+              <View style={[s.driverAvatar, { backgroundColor: LIME + '20' }]}>
+                <Ionicons name="checkmark-circle" size={24} color={LIME} />
+              </View>
+              <View style={s.driverInfo}>
+                <Text style={s.driverName}>Delivery Complete</Text>
+                <Text style={s.driverBike}>Your package was delivered</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Actions */}
+          {!delivered ? (
+            finding ? (
+              <TouchableOpacity onPress={cancelOrder} style={s.cancelBtn}>
+                <Text style={s.cancelTxt}>Cancel Order</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={s.cancelBtn} />
+            )
+          ) : (
+            <TouchableOpacity onPress={newOrder} style={s.cancelBtn}>
+              <Text style={[s.cancelTxt, { color: LIME, fontWeight: '800' }]}>Place New Order →</Text>
+            </TouchableOpacity>
+          )}
+
         </View>
         {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
       </View>
@@ -603,12 +709,7 @@ const s = StyleSheet.create({
   routeStatTxt: { fontSize: 13, fontWeight: '700', color: GREY },
   routeStatSep: { width: 1, height: 14, backgroundColor: '#222' },
 
-  // Map
-  mapCard: {
-    height: 240, borderRadius: 20, overflow: 'hidden',
-    marginBottom: 20,
-    borderWidth: 1, borderColor: '#1a1a1a',
-  },
+  mapCard: { height: 240, borderRadius: 20, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: '#1a1a1a' },
 
   sectionLabel: { fontSize: 11, fontWeight: '700', color: GREY, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 },
   sizeRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
@@ -649,8 +750,9 @@ const s = StyleSheet.create({
   backLink: { alignItems: 'center', paddingVertical: 8 },
   backLinkTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
 
+  // Tracking
   trackContent: { flex: 1, paddingHorizontal: 24, paddingTop: 100, paddingBottom: 40, alignItems: 'center', justifyContent: 'space-between' },
-  trackStatus: { fontSize: 15, fontWeight: '700', color: GREY, letterSpacing: 2, textTransform: 'uppercase', alignSelf: 'flex-start' },
+  trackStatus: { fontSize: 12, fontWeight: '700', color: GREY, letterSpacing: 3, textTransform: 'uppercase', alignSelf: 'flex-start' },
   trackBtnWrap: { width: 240, height: 240, alignItems: 'center', justifyContent: 'center' },
   trackCircle: {
     width: 240, height: 240, borderRadius: 120,
@@ -658,12 +760,12 @@ const s = StyleSheet.create({
     shadowColor: LIME, shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5, shadowRadius: 70, elevation: 30,
   },
-  trackCircleDone: { shadowOpacity: 0.3 },
+  trackCircleDone: { shadowOpacity: 0.25 },
   trackEta: { fontSize: 72, fontWeight: '900', color: BG, letterSpacing: -2 },
-  trackEtaUnit: { fontSize: 14, fontWeight: '800', color: 'rgba(0,0,0,0.4)', marginTop: -8, letterSpacing: 1 },
+  trackEtaUnit: { fontSize: 12, fontWeight: '800', color: 'rgba(0,0,0,0.4)', marginTop: -8, letterSpacing: 1 },
   trackRoute: { width: '100%', backgroundColor: SURFACE, borderRadius: 18, padding: 16 },
   trackRouteRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  trackDot: { width: 8, height: 8, borderRadius: 4 },
+  trackDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   trackAddr: { fontSize: 14, fontWeight: '700', color: '#fff', flex: 1 },
   trackConnector: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 3.5, paddingVertical: 6 },
   trackConnLine: { flex: 1, height: 1, backgroundColor: '#222' },
@@ -673,14 +775,14 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 14,
   },
   driverAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: LIME, alignItems: 'center', justifyContent: 'center' },
-  driverAvatarTxt: { fontSize: 16, fontWeight: '900', color: BG },
+  driverAvatarTxt: { fontSize: 20 },
   driverInfo: { flex: 1 },
   driverName: { fontSize: 16, fontWeight: '800', color: '#fff', marginBottom: 3 },
   driverBike: { fontSize: 12, color: GREY },
   driverRating: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: SURFACE2, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 },
   driverRatingTxt: { fontSize: 13, fontWeight: '800', color: '#fff' },
-  cancelBtn: { paddingVertical: 12 },
-  cancelTxt: { fontSize: 14, color: MUTED, fontWeight: '600' },
+  cancelBtn: { paddingVertical: 14 },
+  cancelTxt: { fontSize: 14, color: MUTED, fontWeight: '600', textAlign: 'center' },
 
   toast: {
     position: 'absolute', bottom: 40, alignSelf: 'center',

@@ -10,17 +10,33 @@ const LIME = '#c8f000';
 const BG = '#080808';
 const SURFACE = '#111';
 const SURFACE2 = '#181818';
-const BORDER = '#1e1e1e';
 const MUTED = '#444';
 const GREY = '#777';
 const GREEN = '#22c55e';
 const AMBER = '#f59e0b';
 
 const MOCK_JOBS = [
-  { id: 'm1', pay: 78,  km: 5.8, time: 18, from: 'De Waterkant', to: 'Green Point' },
-  { id: 'm2', pay: 52,  km: 3.2, time: 11, from: 'Cape Town CBD', to: 'Tamboerskloof' },
-  { id: 'm3', pay: 103, km: 8.1, time: 26, from: 'Observatory', to: 'Camps Bay' },
+  { id: 'm1', pay: 78,  km: 5.8, time: 16, from: 'De Waterkant',  to: 'Green Point' },
+  { id: 'm2', pay: 52,  km: 3.2, time: 9,  from: 'Cape Town CBD', to: 'Tamboerskloof' },
+  { id: 'm3', pay: 103, km: 8.1, time: 22, from: 'Observatory',   to: 'Camps Bay' },
 ];
+
+function formatOrder(o) {
+  // Use real dist_km if available; fall back to estimate from price
+  const km = o.dist_km
+    ? parseFloat(o.dist_km)
+    : o.price
+    ? parseFloat(((o.price - 15) / 6.5).toFixed(1))
+    : 5.0;
+  return {
+    id: o.id,
+    pay: o.price || Math.round(km * 6.5 + 15),
+    km: Math.round(km * 10) / 10,
+    time: Math.round((km / 22) * 60),
+    from: o.from_address || 'Pickup',
+    to: o.to_address || 'Drop-off',
+  };
+}
 
 function PulseRing({ delay, size }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -48,18 +64,15 @@ function PulseRing({ delay, size }) {
   );
 }
 
-function formatOrder(o) {
-  const km = parseFloat((Math.random() * 8 + 2).toFixed(1));
-  return { id: o.id, pay: o.price || Math.round(km * 6.5 + 15), km, time: Math.round(km * 3.2), from: o.from_address || 'Pickup', to: o.to_address || 'Drop-off' };
-}
-
 export default function RiderScreen({ navigation }) {
   const [online, setOnline] = useState(false);
-  const [earnings, setEarnings] = useState(342);
-  const [trips, setTrips] = useState(7);
+  const [earnings, setEarnings] = useState(0);
+  const [trips, setTrips] = useState(0);
   const [jobs, setJobs] = useState([]);
+  const [activeJob, setActiveJob] = useState(null);
   const [view, setView] = useState('home');
   const [userId, setUserId] = useState(null);
+  const [toastMsg, setToastMsg] = useState('');
   const sub = useRef(null);
 
   useEffect(() => {
@@ -70,24 +83,58 @@ export default function RiderScreen({ navigation }) {
     if (!online) { setJobs([]); sub.current?.unsubscribe(); return; }
     fetchOrders();
     sub.current = supabase.channel('pending_orders')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders', filter: 'status=eq.pending' }, (p) => {
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'orders',
+        filter: 'status=eq.pending',
+      }, (p) => {
         setJobs(prev => [formatOrder(p.new), ...prev]);
       }).subscribe();
     return () => sub.current?.unsubscribe();
   }, [online]);
 
   const fetchOrders = async () => {
-    const { data } = await supabase.from('orders').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(10);
+    const { data } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(10);
     setJobs(data?.length ? data.map(formatOrder) : MOCK_JOBS);
   };
 
+  const showToast = (msg) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(''), 3500);
+  };
+
   const acceptJob = async (job) => {
+    // Update DB only for real orders (not mock)
     if (!String(job.id).startsWith('m')) {
-      await supabase.from('orders').update({ status: 'on_the_way', rider_id: userId }).eq('id', job.id);
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'on_the_way', rider_id: userId })
+        .eq('id', job.id);
+      if (error) { showToast('Failed to accept — try again'); return; }
     }
-    setEarnings(p => p + job.pay);
-    setTrips(p => p + 1);
+    setActiveJob(job);
     setJobs(p => p.filter(j => j.id !== job.id));
+    setView('active');
+  };
+
+  const markDelivered = async () => {
+    if (!activeJob) return;
+    if (!String(activeJob.id).startsWith('m')) {
+      await supabase
+        .from('orders')
+        .update({ status: 'delivered' })
+        .eq('id', activeJob.id);
+    }
+    const earned = activeJob.pay;
+    setEarnings(p => p + earned);
+    setTrips(p => p + 1);
+    showToast(`Delivered! R ${earned} earned 💰`);
+    setActiveJob(null);
+    setView('home');
   };
 
   const skipJob = (id) => setJobs(p => p.filter(j => j.id !== id));
@@ -98,12 +145,77 @@ export default function RiderScreen({ navigation }) {
   };
 
   const logoMenu = (
-    <LogoMenu onSignOut={handleSignOut} onOrders={() => {}} onProfile={() => navigation.navigate('Profile')} onSettings={() => navigation.navigate('Settings')} />
+    <LogoMenu
+      onSignOut={handleSignOut}
+      onOrders={() => {}}
+      onProfile={() => navigation.navigate('Profile')}
+      onSettings={() => navigation.navigate('Settings')}
+    />
   );
 
-  const weekAmts = [210, 280, 140, 315, 245, earnings, 105];
+  const weekAmts = [210, 280, 140, 315, 245, earnings || 180, 105];
   const maxAmt = Math.max(...weekAmts);
 
+  // ── ACTIVE DELIVERY ───────────────────────────────────────────────────
+  if (view === 'active' && activeJob) return (
+    <View style={s.container}>
+      <StatusBar style="light" />
+      {logoMenu}
+      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+
+        <Text style={s.greetLabel}>ACTIVE DELIVERY</Text>
+        <Text style={s.pageTitle}>En <Text style={{ color: LIME }}>Route</Text></Text>
+
+        {/* Pay hero */}
+        <View style={s.activeHero}>
+          <Text style={s.activeHeroLabel}>YOUR PAYOUT</Text>
+          <Text style={s.activeHeroPay}>R {activeJob.pay}</Text>
+          <Text style={s.activeHeroSub}>{activeJob.km} km · ~{activeJob.time} min</Text>
+        </View>
+
+        {/* Route */}
+        <View style={s.jobRoute}>
+          <View style={s.jobStop}>
+            <View style={[s.jobDot, { backgroundColor: LIME }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.stopLbl}>COLLECTING FROM</Text>
+              <Text style={s.jobAddr}>{activeJob.from}</Text>
+            </View>
+          </View>
+          <View style={[s.jobConnector, { height: 20, marginLeft: 3 }]} />
+          <View style={s.jobStop}>
+            <View style={[s.jobDot, { backgroundColor: '#ef4444' }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.stopLbl}>DELIVERING TO</Text>
+              <Text style={s.jobAddr}>{activeJob.to}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Delivered button */}
+        <TouchableOpacity
+          style={s.deliveredBtn}
+          onPress={markDelivered}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="checkmark-circle-outline" size={22} color={BG} />
+          <Text style={s.deliveredBtnTxt}>Mark as Delivered</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={s.backToHomeBtn}
+          onPress={() => setView('home')}
+          activeOpacity={0.7}
+        >
+          <Text style={s.backToHomeTxt}>Back to Dashboard</Text>
+        </TouchableOpacity>
+
+      </ScrollView>
+      {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
+    </View>
+  );
+
+  // ── HOME ──────────────────────────────────────────────────────────────
   if (view === 'home') return (
     <View style={s.container}>
       <StatusBar style="light" />
@@ -123,9 +235,9 @@ export default function RiderScreen({ navigation }) {
 
         <View style={s.statsRow}>
           {[
-            { val: trips,       label: 'Trips',    color: '#fff' },
-            { val: `R${earnings}`, label: 'Today',    color: LIME  },
-            { val: '4.9',       label: 'Rating',   color: GREEN },
+            { val: trips,          label: 'Trips',  color: '#fff' },
+            { val: `R${earnings}`, label: 'Today',  color: LIME  },
+            { val: '4.9',          label: 'Rating', color: GREEN },
           ].map((stat, i) => (
             <View key={i} style={s.statCard}>
               <Text style={[s.statVal, { color: stat.color }]}>{stat.val}</Text>
@@ -134,7 +246,11 @@ export default function RiderScreen({ navigation }) {
           ))}
         </View>
 
-        <TouchableOpacity style={[s.onlineCard, online && s.onlineCardActive]} onPress={() => setOnline(!online)} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={[s.onlineCard, online && s.onlineCardActive]}
+          onPress={() => setOnline(!online)}
+          activeOpacity={0.85}
+        >
           <View style={s.onlineInner}>
             {online && <><PulseRing delay={0} size={110} /><PulseRing delay={800} size={110} /></>}
             <View style={[s.onlineCircle, online && s.onlineCircleActive]}>
@@ -151,9 +267,9 @@ export default function RiderScreen({ navigation }) {
 
         <View style={s.quickGrid}>
           {[
-            { icon: 'wallet-outline',      label: 'Earnings',    color: LIME,   onPress: () => setView('earnings') },
+            { icon: 'wallet-outline',      label: 'Earnings',    color: LIME,      onPress: () => setView('earnings') },
             { icon: 'trending-up-outline', label: 'Performance', color: '#3b82f6', onPress: () => {} },
-            { icon: 'time-outline',        label: 'History',     color: AMBER,  onPress: () => {} },
+            { icon: 'time-outline',        label: 'History',     color: AMBER,     onPress: () => {} },
             { icon: 'headset-outline',     label: 'Support',     color: '#a78bfa', onPress: () => {} },
           ].map((t, i) => (
             <TouchableOpacity key={i} style={s.quickTile} onPress={t.onPress} activeOpacity={0.7}>
@@ -169,7 +285,9 @@ export default function RiderScreen({ navigation }) {
           <>
             <View style={s.sectionHeader}>
               <Text style={s.sectionLabel}>Nearby Orders</Text>
-              <TouchableOpacity onPress={() => setView('jobs')}><Text style={s.sectionLink}>See all →</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setView('jobs')}>
+                <Text style={s.sectionLink}>See all →</Text>
+              </TouchableOpacity>
             </View>
             <TouchableOpacity style={s.jobPreview} onPress={() => setView('jobs')} activeOpacity={0.8}>
               <View style={{ flex: 1 }}>
@@ -191,10 +309,13 @@ export default function RiderScreen({ navigation }) {
             <Text style={s.emptySub}>New jobs will appear here</Text>
           </View>
         )}
+
       </ScrollView>
+      {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
     </View>
   );
 
+  // ── JOB LIST ──────────────────────────────────────────────────────────
   if (view === 'jobs') return (
     <View style={s.container}>
       <StatusBar style="light" />
@@ -223,7 +344,7 @@ export default function RiderScreen({ navigation }) {
             </View>
             <View style={s.jobRoute}>
               <View style={s.jobStop}>
-                <View style={[s.jobDot, { backgroundColor: GREEN }]} />
+                <View style={[s.jobDot, { backgroundColor: LIME }]} />
                 <Text style={s.jobAddr}>{job.from}</Text>
               </View>
               <View style={s.jobConnector} />
@@ -243,9 +364,11 @@ export default function RiderScreen({ navigation }) {
           </View>
         ))}
       </ScrollView>
+      {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
     </View>
   );
 
+  // ── EARNINGS ──────────────────────────────────────────────────────────
   if (view === 'earnings') return (
     <View style={s.container}>
       <StatusBar style="light" />
@@ -260,7 +383,7 @@ export default function RiderScreen({ navigation }) {
         <View style={s.earnHero}>
           <Text style={s.earnLabel}>TODAY</Text>
           <Text style={s.earnAmt}>R {earnings}</Text>
-          <Text style={s.earnSub}>{trips} deliveries</Text>
+          <Text style={s.earnSub}>{trips} {trips === 1 ? 'delivery' : 'deliveries'}</Text>
           <View style={s.cashRow}>
             <TouchableOpacity style={s.cashInstant}>
               <Ionicons name="flash" size={15} color={BG} />
@@ -286,6 +409,7 @@ export default function RiderScreen({ navigation }) {
           </View>
         ))}
       </ScrollView>
+      {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
     </View>
   );
 }
@@ -294,15 +418,18 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 24, paddingTop: 100, paddingBottom: 80 },
+
   greeting: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
   greetLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 6 },
   greetTitle: { fontSize: 32, fontWeight: '900', color: '#fff', letterSpacing: -0.5, lineHeight: 36 },
   ratingPill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: SURFACE, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 },
   ratingTxt: { fontSize: 14, fontWeight: '800', color: '#fff' },
+
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   statCard: { flex: 1, backgroundColor: SURFACE, borderRadius: 18, padding: 16, alignItems: 'center' },
   statVal: { fontSize: 22, fontWeight: '900', marginBottom: 3 },
   statLabel: { fontSize: 11, color: GREY, fontWeight: '600' },
+
   onlineCard: { backgroundColor: SURFACE, borderRadius: 24, padding: 28, alignItems: 'center', marginBottom: 16, borderWidth: 1.5, borderColor: '#1a1a1a' },
   onlineCardActive: { borderColor: LIME, backgroundColor: 'rgba(200,240,0,0.05)' },
   onlineInner: { width: 110, height: 110, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
@@ -311,26 +438,32 @@ const s = StyleSheet.create({
   onlineTitle: { fontSize: 22, fontWeight: '900', color: '#fff' },
   onlineTitleActive: { color: LIME },
   onlineSub: { fontSize: 12, color: GREY, marginTop: 5, fontWeight: '500' },
+
   quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 },
   quickTile: { width: '47.5%', backgroundColor: SURFACE, borderRadius: 18, padding: 18 },
   quickIcon: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   quickLabel: { fontSize: 14, fontWeight: '800', color: '#aaa' },
+
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   sectionLabel: { fontSize: 11, fontWeight: '700', color: GREY, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10 },
   sectionLink: { fontSize: 12, color: LIME, fontWeight: '700' },
+
   jobPreview: { backgroundColor: SURFACE, borderRadius: 20, padding: 18, flexDirection: 'row', alignItems: 'center' },
   jobPreviewPay: { fontSize: 26, fontWeight: '900', color: GREEN, marginBottom: 4 },
   jobPreviewRoute: { fontSize: 13, fontWeight: '700', color: '#fff', marginBottom: 2 },
   jobPreviewMeta: { fontSize: 12, color: GREY },
   acceptPill: { backgroundColor: LIME, borderRadius: 14, paddingHorizontal: 18, paddingVertical: 12, marginLeft: 14 },
   acceptPillTxt: { fontSize: 14, fontWeight: '900', color: BG },
+
   emptyState: { alignItems: 'center', marginTop: 40 },
   emptyIcon: { fontSize: 40, marginBottom: 12 },
   emptyTitle: { fontSize: 16, fontWeight: '800', color: '#fff', marginBottom: 5 },
   emptySub: { fontSize: 13, color: GREY },
+
   backRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 },
   backTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
   pageTitle: { fontSize: 40, fontWeight: '900', color: '#fff', letterSpacing: -0.5, marginBottom: 20 },
+
   jobCard: { backgroundColor: SURFACE, borderRadius: 20, padding: 18, marginBottom: 10 },
   jobCardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
   jobPay: { fontSize: 36, fontWeight: '900', color: GREEN },
@@ -340,12 +473,35 @@ const s = StyleSheet.create({
   jobStop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   jobDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   jobConnector: { width: 1, height: 8, backgroundColor: '#2a2a2a', marginLeft: 3 },
-  jobAddr: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  jobAddr: { fontSize: 14, fontWeight: '700', color: '#fff', flex: 1 },
+  stopLbl: { fontSize: 10, fontWeight: '700', color: GREY, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 3 },
   jobActions: { flexDirection: 'row', gap: 8 },
   acceptBtn: { flex: 1, backgroundColor: LIME, borderRadius: 14, height: 48, alignItems: 'center', justifyContent: 'center' },
   acceptBtnTxt: { fontSize: 15, fontWeight: '900', color: BG },
   skipBtn: { backgroundColor: '#0e0e0e', borderRadius: 14, paddingHorizontal: 18, height: 48, alignItems: 'center', justifyContent: 'center' },
   skipBtnTxt: { fontSize: 14, fontWeight: '700', color: GREY },
+
+  // Active delivery
+  activeHero: {
+    backgroundColor: 'rgba(200,240,0,0.07)', borderWidth: 1,
+    borderColor: 'rgba(200,240,0,0.15)', borderRadius: 24,
+    padding: 24, alignItems: 'center', marginBottom: 20,
+  },
+  activeHeroLabel: { fontSize: 10, fontWeight: '700', color: '#5a8020', letterSpacing: 3, marginBottom: 8 },
+  activeHeroPay: { fontSize: 64, fontWeight: '900', color: LIME, letterSpacing: -2, lineHeight: 68 },
+  activeHeroSub: { fontSize: 13, color: '#5a8020', fontWeight: '600', marginTop: 4 },
+  deliveredBtn: {
+    backgroundColor: LIME, borderRadius: 18, height: 60,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    marginTop: 24,
+    shadowColor: LIME, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35, shadowRadius: 24, elevation: 12,
+  },
+  deliveredBtnTxt: { fontSize: 17, fontWeight: '900', color: BG },
+  backToHomeBtn: { alignItems: 'center', paddingVertical: 16 },
+  backToHomeTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
+
+  // Earnings
   earnHero: { backgroundColor: 'rgba(200,240,0,0.07)', borderWidth: 1, borderColor: 'rgba(200,240,0,0.12)', borderRadius: 24, padding: 24, alignItems: 'center', marginBottom: 28 },
   earnLabel: { fontSize: 10, fontWeight: '700', color: '#5a8020', letterSpacing: 3, marginBottom: 8 },
   earnAmt: { fontSize: 72, fontWeight: '900', color: LIME, letterSpacing: -2, lineHeight: 76 },
@@ -362,4 +518,13 @@ const s = StyleSheet.create({
   earnBarBg: { flex: 1, height: 5, backgroundColor: SURFACE, borderRadius: 3, overflow: 'hidden' },
   earnBarFill: { height: '100%', backgroundColor: LIME, borderRadius: 3 },
   earnDayAmt: { fontSize: 13, fontWeight: '800', color: '#fff', width: 54, textAlign: 'right' },
+
+  toast: {
+    position: 'absolute', bottom: 40, alignSelf: 'center',
+    backgroundColor: '#1a1a1a', borderRadius: 24,
+    paddingHorizontal: 22, paddingVertical: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
+  },
+  toastTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

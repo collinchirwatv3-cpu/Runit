@@ -16,9 +16,10 @@ const AMBER = '#f59e0b';
 const BLUE = '#3b82f6';
 
 const STATUS_MAP = {
-  pending:    { label: 'Pending',   color: BLUE  },
-  on_the_way: { label: 'On Way',    color: AMBER },
-  delivered:  { label: 'Delivered', color: GREEN },
+  pending:    { label: 'Pending',    color: BLUE  },
+  on_the_way: { label: 'On the Way', color: AMBER },
+  delivered:  { label: 'Delivered',  color: GREEN },
+  cancelled:  { label: 'Cancelled',  color: MUTED },
 };
 
 export default function OrdersScreen({ navigation }) {
@@ -26,17 +27,38 @@ export default function OrdersScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchOrders();
-  }, []);
+    let channel;
 
-  const fetchOrders = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const query = supabase.from('orders').select('*').order('created_at', { ascending: false });
-    if (user?.id) query.eq('user_id', user.id);
-    const { data } = await query;
-    setOrders(data || []);
-    setLoading(false);
-  };
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user?.id) { setLoading(false); return; }
+      const uid = user.id;
+
+      // Initial load
+      const load = async () => {
+        const { data } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false });
+        setOrders(data || []);
+        setLoading(false);
+      };
+
+      load();
+
+      // Real-time: refetch whenever any order belonging to this user changes
+      channel = supabase.channel('my_orders')
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          filter: `user_id=eq.${uid}`,
+        }, load)
+        .subscribe();
+    });
+
+    return () => { channel?.unsubscribe(); };
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
@@ -86,9 +108,10 @@ export default function OrdersScreen({ navigation }) {
         {!loading && orders.map((order, i) => {
           const si = statusInfo(order.status);
           return (
-            <View key={i} style={s.orderCard}>
+            <View key={order.id || i} style={s.orderCard}>
               <View style={s.orderTop}>
                 <View style={[s.statusPill, { backgroundColor: si.color + '18' }]}>
+                  <View style={[s.statusDot, { backgroundColor: si.color }]} />
                   <Text style={[s.statusTxt, { color: si.color }]}>{si.label}</Text>
                 </View>
                 <Text style={s.orderPrice}>R {order.price || '—'}</Text>
@@ -96,24 +119,32 @@ export default function OrdersScreen({ navigation }) {
 
               <View style={s.routeBlock}>
                 <View style={s.addrRow}>
-                  <View style={s.dot} />
+                  <View style={[s.dot, { backgroundColor: LIME }]} />
                   <Text style={s.addrTxt} numberOfLines={1}>{order.from_address || 'Pickup'}</Text>
                 </View>
                 <View style={s.connector}>
                   <View style={s.connLine} />
                 </View>
                 <View style={s.addrRow}>
-                  <View style={[s.dot, s.dotDest]} />
+                  <View style={[s.dot, { backgroundColor: '#ef4444' }]} />
                   <Text style={s.addrTxt} numberOfLines={1}>{order.to_address || 'Drop-off'}</Text>
                 </View>
               </View>
 
-              <Text style={s.orderDate}>
-                {new Date(order.created_at).toLocaleDateString('en-ZA', {
-                  day: 'numeric', month: 'short', year: 'numeric',
-                  hour: '2-digit', minute: '2-digit',
-                })}
-              </Text>
+              <View style={s.orderMeta}>
+                {order.dist_km && (
+                  <View style={s.metaChip}>
+                    <Ionicons name="navigate-outline" size={11} color={GREY} />
+                    <Text style={s.metaTxt}>{order.dist_km} km</Text>
+                  </View>
+                )}
+                <Text style={s.orderDate}>
+                  {new Date(order.created_at).toLocaleDateString('en-ZA', {
+                    day: 'numeric', month: 'short',
+                    hour: '2-digit', minute: '2-digit',
+                  })}
+                </Text>
+              </View>
             </View>
           );
         })}
@@ -131,47 +162,38 @@ const s = StyleSheet.create({
   backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 28 },
   backTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
 
-  headline: {
-    fontSize: 56, fontWeight: '900', color: '#fff',
-    letterSpacing: -1, lineHeight: 60, marginBottom: 28,
-  },
+  headline: { fontSize: 56, fontWeight: '900', color: '#fff', letterSpacing: -1, lineHeight: 60, marginBottom: 28 },
   headlineAccent: { color: LIME },
 
   loadWrap: { paddingTop: 60, alignItems: 'center' },
 
   emptyWrap: { alignItems: 'center', marginTop: 48 },
-  emptyIcon: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: SURFACE, alignItems: 'center', justifyContent: 'center',
-    marginBottom: 20,
-  },
+  emptyIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: SURFACE, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
   emptyTxt: { fontSize: 20, fontWeight: '900', color: '#fff', marginBottom: 6 },
   emptySub: { fontSize: 14, color: GREY, marginBottom: 28 },
   sendBtn: {
-    backgroundColor: LIME, borderRadius: 16,
-    paddingHorizontal: 28, height: 50,
+    backgroundColor: LIME, borderRadius: 16, paddingHorizontal: 28, height: 50,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: LIME, shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3, shadowRadius: 20, elevation: 10,
+    shadowColor: LIME, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 10,
   },
   sendBtnTxt: { fontSize: 15, fontWeight: '900', color: BG },
 
   orderCard: { backgroundColor: SURFACE, borderRadius: 20, padding: 18, marginBottom: 12 },
   orderTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  statusPill: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
+  statusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusTxt: { fontSize: 12, fontWeight: '800' },
   orderPrice: { fontSize: 22, fontWeight: '900', color: LIME },
 
   routeBlock: { backgroundColor: '#0e0e0e', borderRadius: 14, padding: 14, marginBottom: 12 },
   addrRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dot: {
-    width: 8, height: 8, borderRadius: 4,
-    backgroundColor: GREY,
-  },
-  dotDest: { backgroundColor: LIME },
+  dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   connector: { paddingLeft: 3.5, paddingVertical: 3 },
   connLine: { width: 1, height: 12, backgroundColor: '#2a2a2a' },
   addrTxt: { fontSize: 14, fontWeight: '700', color: '#fff', flex: 1 },
 
+  orderMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  metaChip: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  metaTxt: { fontSize: 11, color: GREY, fontWeight: '600' },
   orderDate: { fontSize: 11, color: MUTED, fontWeight: '500' },
 });
