@@ -14,7 +14,9 @@ const GREY = '#777';
 const MUTED = '#444';
 
 export default function AdminScreen({ navigation }) {
+  const [section, setSection] = useState('verifications'); // 'verifications' | 'payouts'
   const [verifications, setVerifications] = useState([]);
+  const [payouts, setPayouts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('submitted');
   const [showRejectInput, setShowRejectInput] = useState(null);
@@ -23,22 +25,32 @@ export default function AdminScreen({ navigation }) {
 
   const fetchAll = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('rider_verifications')
-      .select('*')
-      .order('submitted_at', { ascending: false });
-    setVerifications(data || []);
+    const [{ data: vData }, { data: pData }] = await Promise.all([
+      supabase.from('rider_verifications').select('*').order('submitted_at', { ascending: false }),
+      supabase.from('payout_requests').select('*').order('created_at', { ascending: false }),
+    ]);
+    setVerifications(vData || []);
+    setPayouts(pData || []);
     setLoading(false);
   };
 
   useEffect(() => {
     fetchAll();
     sub.current = supabase
-      .channel('admin_verifs')
+      .channel('admin_data')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_verifications' }, fetchAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payout_requests' }, fetchAll)
       .subscribe();
     return () => sub.current?.unsubscribe();
   }, []);
+
+  const markPaid = async (id) => {
+    await supabase.from('payout_requests').update({ status: 'paid' }).eq('id', id);
+  };
+
+  const rejectPayout = async (id) => {
+    await supabase.from('payout_requests').update({ status: 'rejected' }).eq('id', id);
+  };
 
   const approve = async (id) => {
     await supabase
@@ -75,7 +87,69 @@ export default function AdminScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <View style={s.tabs}>
+      {/* Section toggle */}
+      <View style={s.sectionToggle}>
+        {['verifications', 'payouts'].map((sec) => (
+          <TouchableOpacity
+            key={sec}
+            style={[s.sectionBtn, section === sec && s.sectionBtnActive]}
+            onPress={() => setSection(sec)}
+          >
+            <Text style={[s.sectionBtnTxt, section === sec && s.sectionBtnTxtActive]}>
+              {sec === 'verifications' ? 'Verifications' : `Payouts${payouts.filter(p => p.status === 'pending').length > 0 ? ` (${payouts.filter(p => p.status === 'pending').length})` : ''}`}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {section === 'payouts' && (
+        loading ? (
+          <View style={s.center}><ActivityIndicator color={LIME} /></View>
+        ) : payouts.length === 0 ? (
+          <View style={s.center}><Text style={s.emptyTxt}>No payout requests</Text></View>
+        ) : (
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+            {payouts.map((p) => (
+              <View key={p.id} style={s.card}>
+                <View style={s.cardHeader}>
+                  <View style={s.avatar}><Text style={{ fontSize: 20 }}>💸</Text></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.riderName}>{p.rider_name || 'Unknown rider'}</Text>
+                    <Text style={s.riderEmail}>{p.rider_email || '—'}</Text>
+                    <Text style={s.dateText}>{new Date(p.created_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
+                  </View>
+                  <View>
+                    <Text style={{ color: LIME, fontSize: 20, fontWeight: '900' }}>R{p.amount}</Text>
+                    {p.status === 'paid' && <View style={s.approvedBadge}><Text style={s.approvedBadgeTxt}>✓ Paid</Text></View>}
+                    {p.status === 'rejected' && <View style={s.rejectedBadge}><Text style={s.rejectedBadgeTxt}>✗ Rejected</Text></View>}
+                  </View>
+                </View>
+                <View style={s.docRow}>
+                  <View style={[s.docBtn, { backgroundColor: 'transparent', borderStyle: 'dashed' }]}>
+                    <Text style={{ color: GREY, fontSize: 12 }}>🏦 {p.bank_name}</Text>
+                  </View>
+                  <View style={[s.docBtn, { backgroundColor: 'transparent', borderStyle: 'dashed' }]}>
+                    <Text style={{ color: GREY, fontSize: 12 }}>Acc: {p.account_number}</Text>
+                  </View>
+                </View>
+                {p.branch_code ? <Text style={{ color: MUTED, fontSize: 12, paddingHorizontal: 4 }}>Branch: {p.branch_code}</Text> : null}
+                {p.status === 'pending' && (
+                  <View style={s.actions}>
+                    <TouchableOpacity style={s.rejectBtn} onPress={() => rejectPayout(p.id)}>
+                      <Text style={s.rejectBtnTxt}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.approveBtn} onPress={() => markPaid(p.id)}>
+                      <Text style={s.approveBtnTxt}>Mark as Paid</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+        )
+      )}
+
+      {section === 'verifications' && <View style={s.tabs}>
         {['submitted', 'approved', 'rejected'].map((t) => (
           <TouchableOpacity
             key={t}
@@ -90,7 +164,7 @@ export default function AdminScreen({ navigation }) {
         ))}
       </View>
 
-      {loading ? (
+      {section === 'verifications' && (loading ? (
         <View style={s.center}><ActivityIndicator color={LIME} /></View>
       ) : filtered.length === 0 ? (
         <View style={s.center}>
@@ -191,7 +265,7 @@ export default function AdminScreen({ navigation }) {
             </View>
           ))}
         </ScrollView>
-      )}
+      ))}
     </View>
   );
 }
@@ -206,6 +280,11 @@ const s = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '800', color: '#fff' },
   subtitle: { fontSize: 13, color: GREY, marginTop: 2 },
   logoutBtn: { padding: 6 },
+  sectionToggle: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: MUTED, backgroundColor: '#0d0d0d' },
+  sectionBtn: { flex: 1, paddingVertical: 13, alignItems: 'center' },
+  sectionBtnActive: { borderBottomWidth: 2, borderBottomColor: LIME },
+  sectionBtnTxt: { color: GREY, fontSize: 14, fontWeight: '700' },
+  sectionBtnTxtActive: { color: LIME },
   tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: MUTED },
   tab: { flex: 1, paddingVertical: 13, alignItems: 'center' },
   tabActive: { borderBottomWidth: 2, borderBottomColor: LIME },

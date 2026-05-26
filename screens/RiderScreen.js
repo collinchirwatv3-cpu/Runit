@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet, Text, View, TouchableOpacity, ScrollView,
-  Animated, TextInput, Platform, Modal, Linking, Alert, Vibration,
+  Animated, TextInput, Platform, Modal, Linking, Alert, Vibration, ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -443,6 +443,9 @@ export default function RiderScreen({ navigation }) {
   const [completedJob, setCompletedJob] = useState(null);
   const [earningsHistory, setEarningsHistory] = useState({ today: 0, trips: 0, week: [0, 0, 0, 0, 0, 0, 0] });
   const [deliveryHistory, setDeliveryHistory] = useState([]);
+  const [showCashout, setShowCashout] = useState(false);
+  const [cashoutForm, setCashoutForm] = useState({ amount: '', bank: '', account: '', branch: '' });
+  const [cashoutLoading, setCashoutLoading] = useState(false);
   const locationIntervalRef = useRef(null);
   const sub = useRef(null);
   const riderLocRef = useRef(null);      // current rider position (for proximity)
@@ -594,10 +597,11 @@ export default function RiderScreen({ navigation }) {
     const week = [0, 0, 0, 0, 0, 0, 0]; // Mon=0 … Sun=6
     data.forEach(o => {
       const d = new Date(o.created_at);
-      const price = (parseFloat(o.price) || 0) + (parseFloat(o.tip) || 0);
+      // Platform takes 20%, rider keeps 80% of delivery fee. Tip is 100% rider.
+      const earn = (parseFloat(o.price) || 0) * 0.8 + (parseFloat(o.tip) || 0);
       const dow = (d.getDay() + 6) % 7;
-      week[dow] += price;
-      if (d >= today) { todayTotal += price; todayTrips++; }
+      week[dow] += earn;
+      if (d >= today) { todayTotal += earn; todayTrips++; }
     });
     setEarnings(todayTotal);
     setTrips(todayTrips);
@@ -727,6 +731,29 @@ export default function RiderScreen({ navigation }) {
     else if (tabId === 'jobs') setView('jobs');
     else if (tabId === 'earnings') setView('earnings');
     else if (tabId === 'settings') navigation.navigate('Settings');
+  };
+
+  const submitCashout = async () => {
+    const { amount, bank, account, branch } = cashoutForm;
+    if (!amount || !bank || !account || !branch) {
+      showToast('Please fill in all fields'); return;
+    }
+    setCashoutLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('payout_requests').insert([{
+      rider_id: userId,
+      rider_name: user?.user_metadata?.name || '',
+      rider_email: user?.email || '',
+      amount: parseFloat(amount),
+      bank_name: bank,
+      account_number: account,
+      branch_code: branch,
+    }]);
+    setCashoutLoading(false);
+    if (error) { showToast('Failed to submit — try again'); return; }
+    showToast('Cashout request submitted!');
+    setShowCashout(false);
+    setCashoutForm({ amount: '', bank: '', account: '', branch: '' });
   };
 
   const activeTab = view === 'earnings' ? 'earnings' : view === 'jobs' ? 'jobs' : 'home';
@@ -1084,18 +1111,11 @@ export default function RiderScreen({ navigation }) {
             <Text style={s.earnLabel}>TODAY</Text>
             <Text style={s.earnAmt}>R {earnings}</Text>
             <Text style={s.earnSub}>{trips} {trips === 1 ? 'delivery' : 'deliveries'}</Text>
-            <View style={s.cashRow}>
-              <TouchableOpacity style={s.cashInstant}>
-                <Ionicons name="flash" size={15} color={BG} />
-                <Text style={s.cashInstantTxt}>Instant Cashout</Text>
-                <Text style={s.cashInstantSub}>~5 min</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.cashEod}>
-                <Ionicons name="time-outline" size={15} color='#aaa' />
-                <Text style={s.cashEodTxt}>End of Day</Text>
-                <Text style={s.cashEodSub}>Auto 22:00</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={s.cashInstant} onPress={() => setShowCashout(true)}>
+              <Ionicons name="flash" size={15} color={BG} />
+              <Text style={s.cashInstantTxt}>Cash Out</Text>
+              <Text style={s.cashInstantSub}>Request payout</Text>
+            </TouchableOpacity>
           </View>
 
           <Text style={s.sectionLabel}>This Week</Text>
@@ -1125,7 +1145,7 @@ export default function RiderScreen({ navigation }) {
                       {new Date(item.created_at).toLocaleDateString('en-ZA', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </Text>
                   </View>
-                  <Text style={s.historyAmt}>R {item.price}</Text>
+                  <Text style={s.historyAmt}>R {((parseFloat(item.price) || 0) * 0.8 + (parseFloat(item.tip) || 0)).toFixed(0)}</Text>
                 </View>
               ))}
             </>
@@ -1299,6 +1319,51 @@ export default function RiderScreen({ navigation }) {
 
       {/* ── Toast ── */}
       {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
+
+      {/* ── Cashout Modal ── */}
+      <Modal visible={showCashout} transparent animationType="slide" onRequestClose={() => setShowCashout(false)}>
+        <View style={s.modalOverlay}>
+          <View style={s.modalSheet}>
+            <View style={s.modalHandle} />
+            <Text style={s.modalTitle}>Request Payout</Text>
+            <Text style={s.modalSub}>Available: R {Math.round(earningsHistory.today)}</Text>
+
+            {[
+              { key: 'amount', label: 'Amount (ZAR)', placeholder: 'e.g. 150', keyboardType: 'numeric' },
+              { key: 'bank', label: 'Bank Name', placeholder: 'e.g. FNB' },
+              { key: 'account', label: 'Account Number', placeholder: '1234567890', keyboardType: 'numeric' },
+              { key: 'branch', label: 'Branch Code', placeholder: 'e.g. 250655', keyboardType: 'numeric' },
+            ].map(({ key, label, placeholder, keyboardType }) => (
+              <View key={key} style={s.modalField}>
+                <Text style={s.modalFieldLabel}>{label}</Text>
+                <TextInput
+                  style={s.modalInput}
+                  placeholder={placeholder}
+                  placeholderTextColor={GREY}
+                  keyboardType={keyboardType || 'default'}
+                  value={cashoutForm[key]}
+                  onChangeText={(v) => setCashoutForm(f => ({ ...f, [key]: v }))}
+                />
+              </View>
+            ))}
+
+            <View style={s.modalActions}>
+              <TouchableOpacity style={s.modalCancelBtn} onPress={() => setShowCashout(false)}>
+                <Text style={s.modalCancelTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.modalSubmitBtn, cashoutLoading && { opacity: 0.6 }]}
+                onPress={submitCashout}
+                disabled={cashoutLoading}
+              >
+                {cashoutLoading
+                  ? <ActivityIndicator color={BG} size="small" />
+                  : <Text style={s.modalSubmitTxt}>Submit Request</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1722,4 +1787,17 @@ const s = StyleSheet.create({
     shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
   },
   toastTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: SURFACE, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, gap: 12 },
+  modalHandle: { width: 40, height: 4, backgroundColor: MUTED, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#fff' },
+  modalSub: { fontSize: 13, color: GREY, marginBottom: 4 },
+  modalField: { gap: 4 },
+  modalFieldLabel: { fontSize: 12, color: GREY, fontWeight: '600' },
+  modalInput: { backgroundColor: '#1a1a1a', borderRadius: 10, padding: 12, color: '#fff', fontSize: 15, borderWidth: 1, borderColor: MUTED },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  modalCancelBtn: { flex: 1, height: 48, borderRadius: 12, borderWidth: 1, borderColor: MUTED, alignItems: 'center', justifyContent: 'center' },
+  modalCancelTxt: { color: GREY, fontWeight: '700', fontSize: 15 },
+  modalSubmitBtn: { flex: 2, height: 48, borderRadius: 12, backgroundColor: LIME, alignItems: 'center', justifyContent: 'center' },
+  modalSubmitTxt: { color: BG, fontWeight: '800', fontSize: 15 },
 });

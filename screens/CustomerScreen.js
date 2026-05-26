@@ -411,6 +411,30 @@ export default function CustomerScreen({ navigation }) {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id || null));
+
+    // Detect return from PayFast payment redirect
+    if (Platform.OS === 'web') {
+      const params = new URLSearchParams(window.location.search);
+      const paymentResult = params.get('payment');
+      const pendingRaw = localStorage.getItem('runit_pending_order');
+      if (pendingRaw && (paymentResult === 'success' || paymentResult === 'cancel')) {
+        let saved = {};
+        try { saved = JSON.parse(pendingRaw); } catch (_) {}
+        localStorage.removeItem('runit_pending_order');
+        window.history.replaceState({}, '', window.location.pathname);
+        if (paymentResult === 'cancel') {
+          if (saved.orderId) supabase.from('orders').delete().eq('id', saved.orderId).then(() => {});
+        } else {
+          const { orderId, pin } = saved;
+          if (orderId) {
+            supabase.from('orders').select('status, delivery_pin').eq('id', orderId).single().then(({ data }) => {
+              if (data) startOrderTracking(orderId, data.delivery_pin || pin, data.status);
+            });
+          }
+        }
+      }
+    }
+
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
@@ -518,6 +542,31 @@ export default function CustomerScreen({ navigation }) {
     showToast(`R${amt} tip sent — thank you! 🙏`);
   };
 
+  const startOrderTracking = (orderId, pin, initialStatus = 'pending') => {
+    setActiveOrderId(orderId);
+    setDeliveryPin(pin);
+    setOrderStatus(initialStatus);
+    orderSubRef.current?.unsubscribe();
+    const channel = supabase.channel(`order_${orderId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'orders',
+        filter: `id=eq.${orderId}`,
+      }, (payload) => {
+        const newStatus = payload.new.status;
+        setOrderStatus(newStatus);
+        if (newStatus === 'on_the_way') {
+          const name = payload.new.rider_name || null;
+          setRiderName(name);
+          showToast(name ? `🏍️  ${name} is coming to collect your parcel!` : '🏍️  Rider is on the way!');
+          subscribeRiderLocation(orderId);
+        }
+        if (newStatus === 'delivered') showToast('Delivered! 🎉');
+      })
+      .subscribe();
+    orderSubRef.current = channel;
+    setScreen('tracking');
+  };
+
   const handleSend = async () => {
     if (!from || !to) { Alert.alert('Missing Info', 'Enter pickup and drop-off'); return; }
     setLoading(true);
@@ -529,7 +578,9 @@ export default function CustomerScreen({ navigation }) {
       .insert([{
         from_address: from, to_address: to,
         price: price || 0,
-        status: 'pending', user_id: userId,
+        status: 'awaiting_payment',
+        payment_status: 'unpaid',
+        user_id: userId,
         package_size: packageSize,
         dist_km: dist,
         delivery_pin: pin,
@@ -547,33 +598,25 @@ export default function CustomerScreen({ navigation }) {
     if (error) { Alert.alert('Error', error.message); return; }
 
     const orderId = insertData?.id;
-    setActiveOrderId(orderId);
-    setDeliveryPin(pin);
-    setOrderStatus('pending');
 
-    // Subscribe to order status changes
-    if (orderId) {
-      orderSubRef.current?.unsubscribe();
-      const channel = supabase.channel(`order_${orderId}`)
-        .on('postgres_changes', {
-          event: 'UPDATE', schema: 'public', table: 'orders',
-          filter: `id=eq.${orderId}`,
-        }, (payload) => {
-          const newStatus = payload.new.status;
-          setOrderStatus(newStatus);
-          if (newStatus === 'on_the_way') {
-            const name = payload.new.rider_name || null;
-            setRiderName(name);
-            showToast(name ? `🏍️  ${name} is coming to collect your parcel!` : '🏍️  Rider is on the way!');
-            subscribeRiderLocation(orderId);
-          }
-          if (newStatus === 'delivered') showToast('Delivered! 🎉');
-        })
-        .subscribe();
-      orderSubRef.current = channel;
+    if (Platform.OS === 'web') {
+      localStorage.setItem('runit_pending_order', JSON.stringify({ orderId, pin }));
+      try {
+        const res = await fetch('/api/payfast-initiate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId, amount: price, itemName: 'RunIt Delivery' }),
+        });
+        const json = await res.json();
+        if (json.url) { window.location.href = json.url; return; }
+      } catch (_) {}
+      // PayFast not configured — activate order directly (dev/staging fallback)
+      await supabase.from('orders').update({ status: 'pending', payment_status: 'paid' }).eq('id', orderId);
+    } else {
+      await supabase.from('orders').update({ status: 'pending', payment_status: 'paid' }).eq('id', orderId);
     }
 
-    setScreen('tracking');
+    startOrderTracking(orderId, pin);
   };
 
   const subscribeRiderLocation = (orderId) => {
@@ -818,7 +861,9 @@ export default function CustomerScreen({ navigation }) {
             disabled={!from || !to || calculating || loading}
             activeOpacity={0.85}
           >
-            <Text style={s.primaryBtnTxt}>{loading ? 'Booking rider…' : '🏍️  Send Now'}</Text>
+            <Text style={s.primaryBtnTxt}>
+              {loading ? 'Redirecting to payment…' : price ? `Confirm & Pay  R${price}` : '🏍️  Send Now'}
+            </Text>
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -827,10 +872,11 @@ export default function CustomerScreen({ navigation }) {
 
   // ── TRACKING ──────────────────────────────────────────────────────────
   if (screen === 'tracking') {
+    const awaitingPayment = orderStatus === 'awaiting_payment';
     const finding   = orderStatus === 'pending';
     const onTheWay  = orderStatus === 'on_the_way';
     const delivered = orderStatus === 'delivered';
-    const statusLabel = finding ? 'Finding Rider' : onTheWay ? 'On the Way' : 'Delivered';
+    const statusLabel = awaitingPayment ? 'Confirming Payment' : finding ? 'Finding Rider' : onTheWay ? 'On the Way' : 'Delivered';
 
     return (
       <View style={s.container}>
