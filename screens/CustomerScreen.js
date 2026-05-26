@@ -394,6 +394,7 @@ export default function CustomerScreen({ navigation }) {
   const [orderStatus, setOrderStatus] = useState('pending');
   const [deliveryPin, setDeliveryPin] = useState(null);
   const [riderLocation, setRiderLocation] = useState(null);
+  const [riderName, setRiderName] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [userId, setUserId] = useState(null);
@@ -561,7 +562,9 @@ export default function CustomerScreen({ navigation }) {
           const newStatus = payload.new.status;
           setOrderStatus(newStatus);
           if (newStatus === 'on_the_way') {
-            showToast('🏍️  Rider is on the way!');
+            const name = payload.new.rider_name || null;
+            setRiderName(name);
+            showToast(name ? `🏍️  ${name} is coming to collect your parcel!` : '🏍️  Rider is on the way!');
             subscribeRiderLocation(orderId);
           }
           if (newStatus === 'delivered') showToast('Delivered! 🎉');
@@ -611,7 +614,7 @@ export default function CustomerScreen({ navigation }) {
     setPackageSize('small'); setNotes('');
     setPostTip(0); setCustomPostTip(''); setTipSubmitted(false);
     setActiveOrderId(null); setOrderStatus('pending');
-    setDeliveryPin(null); setRiderLocation(null);
+    setDeliveryPin(null); setRiderLocation(null); setRiderName(null);
   };
 
   const handleSignOut = async () => {
@@ -836,6 +839,19 @@ export default function CustomerScreen({ navigation }) {
         <ScrollView style={s.scroll} contentContainerStyle={[s.scrollContent, { alignItems: 'center' }]} showsVerticalScrollIndicator={false}>
 
           <Text style={[s.trackStatus, { alignSelf: 'flex-start' }]}>{statusLabel}</Text>
+
+          {/* Rider name banner — shown once rider accepts */}
+          {onTheWay && riderName && (
+            <View style={s.riderNameCard}>
+              <View style={s.riderNameAvatar}>
+                <Text style={{ fontSize: 20 }}>🏍️</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.riderNameTxt}>{riderName}</Text>
+                <Text style={s.riderNameSub}>is on the way to collect your parcel</Text>
+              </View>
+            </View>
+          )}
 
           {/* Big circle */}
           <View style={s.trackBtnWrap}>
@@ -1137,7 +1153,21 @@ const s = StyleSheet.create({
   primaryBtnTxt: { fontSize: 17, fontWeight: '900', color: BG },
 
   // Tracking
-  trackStatus: { fontSize: 12, fontWeight: '700', color: GREY, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 24 },
+  trackStatus: { fontSize: 12, fontWeight: '700', color: GREY, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 16 },
+  riderNameCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: SURFACE, borderRadius: 20,
+    paddingHorizontal: 18, paddingVertical: 14,
+    marginBottom: 20, alignSelf: 'stretch',
+    borderWidth: 1, borderColor: 'rgba(200,240,0,0.2)',
+  },
+  riderNameAvatar: {
+    width: 44, height: 44, borderRadius: 14,
+    backgroundColor: 'rgba(200,240,0,0.1)',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  riderNameTxt: { fontSize: 17, fontWeight: '900', color: '#fff', marginBottom: 2 },
+  riderNameSub: { fontSize: 12, color: GREY, fontWeight: '500' },
   trackBtnWrap: { width: 200, height: 200, alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
   trackCircle: {
     width: 200, height: 200, borderRadius: 100, backgroundColor: LIME,

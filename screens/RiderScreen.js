@@ -673,9 +673,11 @@ export default function RiderScreen({ navigation }) {
 
   const acceptJob = async (job) => {
     if (!String(job.id).startsWith('m')) {
+      const { data: { user } } = await supabase.auth.getUser();
+      const riderName = user?.user_metadata?.name || 'Your rider';
       const { error } = await supabase
         .from('orders')
-        .update({ status: 'on_the_way', rider_id: userId })
+        .update({ status: 'on_the_way', rider_id: userId, rider_name: riderName })
         .eq('id', job.id);
       if (error) { showToast('Failed to accept — try again'); return; }
     }
