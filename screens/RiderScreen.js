@@ -473,11 +473,10 @@ export default function RiderScreen({ navigation }) {
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(20);
-    if (!data?.length) { setJobs(MOCK_JOBS); return; }
+    if (!data?.length) { setJobs([]); return; }
     let jobs = data.map(o => applyProximity(formatOrder(o)));
-    // Filter to nearby only if we have location
     if (riderLocRef.current) jobs = jobs.filter(j => !j._tooFar);
-    setJobs(jobs.length ? jobs : MOCK_JOBS);
+    setJobs(jobs);
   };
 
   const startPassiveLocation = () => {
@@ -632,7 +631,7 @@ export default function RiderScreen({ navigation }) {
     setPinInput('');
     setPinError(false);
     await loadEarnings(userId);
-    fetchOrders(); // refresh available jobs — clears any stale entries
+    await fetchOrders(); // wait for refresh before showing summary
     setView('summary');
   };
 
@@ -812,7 +811,7 @@ export default function RiderScreen({ navigation }) {
 
           <TouchableOpacity
             style={s.summaryHomeBtn}
-            onPress={() => { setCompletedJob(null); setView('home'); }}
+            onPress={() => { setCompletedJob(null); fetchOrders(); setView('home'); }}
             activeOpacity={0.85}
           >
             <Ionicons name="bicycle-outline" size={20} color={BG} />
