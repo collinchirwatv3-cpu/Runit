@@ -1019,7 +1019,7 @@ export default function CustomerScreen({ navigation }) {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
-  scroll: { flex: 1, backgroundColor: BG },
+  scroll: { flex: 1, backgroundColor: BG, height: '100%' },
   scrollContent: { paddingHorizontal: 24, paddingTop: 90, paddingBottom: 40 },
 
   homeContent: { flex: 1, paddingHorizontal: 28, justifyContent: 'space-between', paddingTop: 96, paddingBottom: 90 },

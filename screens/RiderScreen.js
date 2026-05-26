@@ -1457,7 +1457,7 @@ const sos = StyleSheet.create({
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
-  scroll: { flex: 1 },
+  scroll: { flex: 1, height: '100%' },
   scrollContent: { paddingHorizontal: 24, paddingTop: 100, paddingBottom: 80 },
 
   greeting: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
