@@ -252,6 +252,75 @@ function haversine(a, b) {
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
+// ─── Rider trip map ───────────────────────────────────────────────────────
+
+function buildRiderTripMapHtml(initRider, fromCoords, toCoords) {
+  const center = initRider || fromCoords || { lat: -33.9249, lon: 18.4241 };
+  const cLat = center.lat; const cLon = center.lon;
+  const fLL = fromCoords ? `[${fromCoords.lat},${fromCoords.lon}]` : 'null';
+  const tLL = toCoords   ? `[${toCoords.lat},${toCoords.lon}]`     : 'null';
+  const rLL = initRider  ? `[${initRider.lat},${initRider.lon}]`   : 'null';
+  return `<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body,#map{height:100%;width:100%;background:#080808}
+.rider-icon{font-size:26px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.9))}
+</style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head><body><div id="map"></div><script>
+const map=L.map('map',{zoomControl:false,attributionControl:false}).setView([${cLat},${cLon}],16);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+L.control.zoom({position:'bottomright'}).addTo(map);
+let routeLine=null,riderMarker=null;
+const fLL=${fLL}, tLL=${tLL}, rLL=${rLL};
+if(fLL) L.circleMarker(fLL,{radius:10,color:'#c8f000',fillColor:'#c8f000',fillOpacity:1,weight:3}).addTo(map).bindTooltip('Pickup',{permanent:false});
+if(tLL) L.circleMarker(tLL,{radius:10,color:'#ef4444',fillColor:'#ef4444',fillOpacity:1,weight:3}).addTo(map).bindTooltip('Drop-off',{permanent:false});
+const riderIcon=L.divIcon({className:'',html:'<div class="rider-icon">🏍️</div>',iconSize:[36,36],iconAnchor:[18,18]});
+function placeRider(lat,lon){
+  const ll=[lat,lon];
+  if(riderMarker){riderMarker.setLatLng(ll);}
+  else{riderMarker=L.marker(ll,{icon:riderIcon,zIndexOffset:1000}).addTo(map);}
+}
+async function drawRoute(from,to){
+  try{
+    const url='https://router.project-osrm.org/route/v1/driving/'+from[1]+','+from[0]+';'+to[1]+','+to[0]+'?geometries=geojson';
+    const d=await(await fetch(url)).json();
+    const coords=d.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+    if(routeLine)map.removeLayer(routeLine);
+    routeLine=L.polyline(coords,{color:'#c8f000',weight:5,opacity:0.9}).addTo(map);
+  }catch(_){}
+}
+if(fLL&&tLL)drawRoute(fLL,tLL);
+if(rLL)placeRider(rLL[0],rLL[1]);
+window.addEventListener('message',e=>{
+  const d=e.data;
+  if(!d)return;
+  if(d.type==='riderPos'){placeRider(d.lat,d.lon);map.panTo([d.lat,d.lon],{animate:true,duration:1.2});}
+  if(d.type==='setRoute'&&d.from&&d.to)drawRoute([d.from.lat,d.from.lon],[d.to.lat,d.to.lon]);
+});
+</script></body></html>`;
+}
+
+function RiderTripMap({ initRider, fromCoords, toCoords, iframeRef: extIframeRef }) {
+  const localRef = useRef(null);
+  const ref = extIframeRef || localRef;
+  const html = buildRiderTripMapHtml(initRider, fromCoords, toCoords);
+  if (Platform.OS === 'web') {
+    return (
+      <iframe
+        ref={ref}
+        srcDoc={html}
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+        title="trip-map"
+      />
+    );
+  }
+  const WebView = require('react-native-webview').WebView;
+  return <WebView ref={ref} source={{ html }} style={{ flex: 1 }} javaScriptEnabled />;
+}
+
 // ─── Mock jobs ────────────────────────────────────────────────────────────
 
 const MOCK_JOBS = [
@@ -278,6 +347,8 @@ function formatOrder(o) {
     size: o.package_size || 'small',
     fromLat: o.from_lat || null,
     fromLon: o.from_lon || null,
+    toLat: o.to_lat || null,
+    toLon: o.to_lon || null,
     distToPickup: null, // filled after proximity check
   };
 }
@@ -330,6 +401,17 @@ export default function RiderScreen({ navigation }) {
   const sub = useRef(null);
   const riderLocRef = useRef(null);      // current rider position (for proximity)
   const passiveWatchRef = useRef(null);  // web geolocation watchId
+  const riderTripMapRef = useRef(null);  // iframe/WebView ref for active-trip map
+
+  const sendToRiderMap = (msg) => {
+    const el = riderTripMapRef.current;
+    if (!el) return;
+    if (Platform.OS === 'web') {
+      el.contentWindow?.postMessage(msg, '*');
+    } else {
+      el.injectJavaScript?.(`window.dispatchEvent(new MessageEvent('message',{data:${JSON.stringify(msg)}}));true;`);
+    }
+  };
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -479,11 +561,11 @@ export default function RiderScreen({ navigation }) {
         if (Platform.OS === 'web') {
           if (!navigator.geolocation) return;
           navigator.geolocation.getCurrentPosition(async (pos) => {
+            const lat = pos.coords.latitude, lon = pos.coords.longitude;
+            riderLocRef.current = { lat, lon };
+            sendToRiderMap({ type: 'riderPos', lat, lon });
             await supabase.from('rider_locations').upsert({
-              rider_id: userId,
-              order_id: job.id,
-              lat: pos.coords.latitude,
-              lon: pos.coords.longitude,
+              rider_id: userId, order_id: job.id, lat, lon,
               updated_at: new Date().toISOString(),
             }, { onConflict: 'rider_id' });
           });
@@ -492,11 +574,11 @@ export default function RiderScreen({ navigation }) {
           const { status } = await Location.requestForegroundPermissionsAsync();
           if (status !== 'granted') return;
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const lat = loc.coords.latitude, lon = loc.coords.longitude;
+          riderLocRef.current = { lat, lon };
+          sendToRiderMap({ type: 'riderPos', lat, lon });
           await supabase.from('rider_locations').upsert({
-            rider_id: userId,
-            order_id: job.id,
-            lat: loc.coords.latitude,
-            lon: loc.coords.longitude,
+            rider_id: userId, order_id: job.id, lat, lon,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'rider_id' });
         }
@@ -574,8 +656,8 @@ export default function RiderScreen({ navigation }) {
 
   return (
     <View style={s.container}>
-      <StatusBar style="light" />
-      <TopBar />
+      <StatusBar style={view === 'active' ? 'dark' : 'light'} />
+      {view !== 'active' && <TopBar />}
 
       {/* ── Floating SOS button — always visible ── */}
       <SOSButton />
@@ -589,86 +671,93 @@ export default function RiderScreen({ navigation }) {
         />
       )}
 
-      {/* ── ACTIVE DELIVERY ── */}
+      {/* ── ACTIVE DELIVERY (full-screen map) ── */}
       {view === 'active' && activeJob && (
-        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-
-          <Text style={s.greetLabel}>ACTIVE DELIVERY</Text>
-          <Text style={s.pageTitle}>En <Text style={{ color: LIME }}>Route</Text></Text>
-
-          <View style={s.activeHero}>
-            <Text style={s.activeHeroLabel}>YOUR PAYOUT</Text>
-            <Text style={s.activeHeroPay}>R {activeJob.pay}</Text>
-            <Text style={s.activeHeroSub}>{activeJob.km} km · ~{activeJob.time} min</Text>
-          </View>
-
-          <View style={s.jobRoute}>
-            <View style={s.jobStop}>
-              <View style={[s.jobDot, { backgroundColor: LIME }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={s.stopLbl}>COLLECTING FROM</Text>
-                <Text style={s.jobAddr}>{activeJob.from}</Text>
-              </View>
-            </View>
-            <View style={[s.jobConnector, { height: 20, marginLeft: 3 }]} />
-            <View style={s.jobStop}>
-              <View style={[s.jobDot, { backgroundColor: '#ef4444' }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={s.stopLbl}>DELIVERING TO</Text>
-                <Text style={s.jobAddr}>{activeJob.to}</Text>
-              </View>
-            </View>
-          </View>
-
-          {activeJob.notes ? (
-            <View style={s.notesCard}>
-              <Ionicons name="chatbubble-outline" size={15} color={LIME} />
-              <Text style={s.notesTxt}>{activeJob.notes}</Text>
-            </View>
-          ) : null}
-
-          <View style={s.pinEntryCard}>
-            <Text style={s.pinEntryLabel}>CONFIRM DELIVERY</Text>
-            <Text style={s.pinEntryHint}>Ask the recipient for their 3-digit PIN</Text>
-            <TouchableOpacity style={s.pinBoxRow} onPress={() => pinInputRef.current?.focus()} activeOpacity={1}>
-              {[0, 1, 2].map(i => (
-                <View key={i} style={[
-                  s.pinBox,
-                  pinInput.length === i && s.pinBoxActive,
-                  pinError && s.pinBoxError,
-                ]}>
-                  <Text style={[s.pinDigit, pinError && { color: '#ef4444' }]}>
-                    {pinInput[i] || ''}
-                  </Text>
-                </View>
-              ))}
-            </TouchableOpacity>
-            <TextInput
-              ref={pinInputRef}
-              style={s.pinHiddenInput}
-              value={pinInput}
-              onChangeText={v => { setPinInput(v.replace(/\D/g, '').slice(0, 3)); setPinError(false); }}
-              keyboardType="numeric"
-              maxLength={3}
+        <View style={s.tripScreen}>
+          {/* Map — fills almost all screen */}
+          <View style={s.tripMapArea}>
+            <RiderTripMap
+              iframeRef={riderTripMapRef}
+              initRider={riderLocRef.current}
+              fromCoords={activeJob.fromLat ? { lat: activeJob.fromLat, lon: activeJob.fromLon } : null}
+              toCoords={activeJob.toLat ? { lat: activeJob.toLat, lon: activeJob.toLon } : null}
             />
-            {pinError && <Text style={s.pinErrorTxt}>Incorrect PIN — try again</Text>}
+            {/* Floating payout chip */}
+            <View style={s.tripPayChip}>
+              <Text style={s.tripPayChipAmt}>R {activeJob.pay}</Text>
+              <Text style={s.tripPayChipMeta}>{activeJob.km} km · ~{activeJob.time} min</Text>
+            </View>
+            {/* Floating "EN ROUTE" label */}
+            <View style={s.tripStatusChip}>
+              <View style={s.tripStatusDot} />
+              <Text style={s.tripStatusTxt}>EN ROUTE</Text>
+            </View>
           </View>
 
-          <TouchableOpacity
-            style={[s.deliveredBtn, pinInput.length < 3 && { opacity: 0.4 }]}
-            onPress={confirmDelivery}
-            disabled={pinInput.length < 3}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="checkmark-circle-outline" size={22} color={BG} />
-            <Text style={s.deliveredBtnTxt}>Confirm Delivery</Text>
-          </TouchableOpacity>
+          {/* Bottom sheet */}
+          <View style={s.tripSheet}>
+            {/* Route */}
+            <View style={s.tripRouteBlock}>
+              <View style={s.tripStop}>
+                <View style={[s.tripDot, { backgroundColor: LIME }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.tripStopLbl}>COLLECTING FROM</Text>
+                  <Text style={s.tripStopAddr} numberOfLines={1}>{activeJob.from}</Text>
+                </View>
+              </View>
+              <View style={s.tripConnector} />
+              <View style={s.tripStop}>
+                <View style={[s.tripDot, { backgroundColor: '#ef4444' }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.tripStopLbl}>DELIVERING TO</Text>
+                  <Text style={s.tripStopAddr} numberOfLines={1}>{activeJob.to}</Text>
+                </View>
+              </View>
+            </View>
 
-          <TouchableOpacity style={s.backToHomeBtn} onPress={() => { stopLocationBroadcast(); setView('home'); }} activeOpacity={0.7}>
-            <Text style={s.backToHomeTxt}>Back to Dashboard</Text>
-          </TouchableOpacity>
+            {activeJob.notes ? (
+              <View style={s.tripNotesRow}>
+                <Ionicons name="chatbubble-outline" size={13} color={LIME} />
+                <Text style={s.tripNotesTxt} numberOfLines={2}>{activeJob.notes}</Text>
+              </View>
+            ) : null}
 
-        </ScrollView>
+            {/* PIN entry */}
+            <View style={s.tripPinRow}>
+              <Text style={s.tripPinLbl}>RECIPIENT PIN</Text>
+              <TouchableOpacity style={s.pinBoxRow} onPress={() => pinInputRef.current?.focus()} activeOpacity={1}>
+                {[0, 1, 2].map(i => (
+                  <View key={i} style={[s.pinBox, pinInput.length === i && s.pinBoxActive, pinError && s.pinBoxError]}>
+                    <Text style={[s.pinDigit, pinError && { color: '#ef4444' }]}>{pinInput[i] || ''}</Text>
+                  </View>
+                ))}
+              </TouchableOpacity>
+              <TextInput
+                ref={pinInputRef}
+                style={s.pinHiddenInput}
+                value={pinInput}
+                onChangeText={v => { setPinInput(v.replace(/\D/g, '').slice(0, 3)); setPinError(false); }}
+                keyboardType="numeric"
+                maxLength={3}
+              />
+              {pinError && <Text style={s.pinErrorTxt}>Incorrect PIN — try again</Text>}
+            </View>
+
+            <TouchableOpacity
+              style={[s.deliveredBtn, pinInput.length < 3 && { opacity: 0.4 }]}
+              onPress={confirmDelivery}
+              disabled={pinInput.length < 3}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="checkmark-circle-outline" size={20} color={BG} />
+              <Text style={s.deliveredBtnTxt}>Confirm Delivery</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={s.backToHomeBtn} onPress={() => { stopLocationBroadcast(); setView('home'); }} activeOpacity={0.7}>
+              <Text style={s.backToHomeTxt}>Cancel trip</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       )}
 
       {/* ── DELIVERY SUMMARY ── */}
@@ -1181,7 +1270,47 @@ const s = StyleSheet.create({
   skipBtn: { backgroundColor: '#0e0e0e', borderRadius: 14, paddingHorizontal: 18, height: 48, alignItems: 'center', justifyContent: 'center' },
   skipBtnTxt: { fontSize: 14, fontWeight: '700', color: GREY },
 
-  // Active delivery
+  // Full-screen active delivery (trip map view)
+  tripScreen: { flex: 1 },
+  tripMapArea: { flex: 1, position: 'relative' },
+  tripPayChip: {
+    position: 'absolute', top: 14, left: 14, zIndex: 10,
+    backgroundColor: 'rgba(8,8,8,0.85)', borderRadius: 16,
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1, borderColor: 'rgba(200,240,0,0.35)',
+  },
+  tripPayChipAmt: { fontSize: 22, fontWeight: '900', color: LIME, letterSpacing: -0.5 },
+  tripPayChipMeta: { fontSize: 11, color: '#5a8020', fontWeight: '600', marginTop: 2 },
+  tripStatusChip: {
+    position: 'absolute', top: 14, right: 14, zIndex: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(8,8,8,0.8)', borderRadius: 12,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  tripStatusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: LIME },
+  tripStatusTxt: { fontSize: 10, fontWeight: '800', color: LIME, letterSpacing: 2 },
+  tripSheet: {
+    backgroundColor: SURFACE, borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingHorizontal: 22, paddingTop: 18, paddingBottom: 28,
+    borderTopWidth: 1, borderColor: '#1a1a1a',
+  },
+  tripRouteBlock: { marginBottom: 10 },
+  tripStop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  tripDot: { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
+  tripStopLbl: { fontSize: 9, fontWeight: '700', color: MUTED, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 2 },
+  tripStopAddr: { fontSize: 14, fontWeight: '700', color: '#ddd' },
+  tripConnector: { width: 1, height: 12, backgroundColor: '#2a2a2a', marginLeft: 4, marginVertical: 2 },
+  tripNotesRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: 'rgba(200,240,0,0.05)', borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 8, marginBottom: 6,
+    borderWidth: 1, borderColor: 'rgba(200,240,0,0.12)',
+  },
+  tripNotesTxt: { flex: 1, fontSize: 12, color: '#bbb', fontWeight: '500', lineHeight: 18 },
+  tripPinRow: { alignItems: 'center', marginTop: 10, marginBottom: 4 },
+  tripPinLbl: { fontSize: 9, fontWeight: '800', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 10 },
+
+  // Active delivery (legacy — kept for style refs)
   activeHero: {
     backgroundColor: 'rgba(200,240,0,0.07)', borderWidth: 1,
     borderColor: 'rgba(200,240,0,0.15)', borderRadius: 24,
