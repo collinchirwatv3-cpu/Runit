@@ -181,13 +181,21 @@ const SOS_CONTACTS = [
   },
 ];
 
-function SOSButton() {
+function SOSButton({ activeJob, onBreakdown }) {
   const [visible, setVisible] = useState(false);
+  const [confirmBreakdown, setConfirmBreakdown] = useState(false);
+
+  const close = () => { setVisible(false); setConfirmBreakdown(false); };
 
   const call = (number) => {
     Linking.openURL(`tel:${number}`).catch(() =>
       Alert.alert('Cannot call', `Dial ${number} manually`)
     );
+  };
+
+  const handleBreakdown = () => {
+    close();
+    onBreakdown?.();
   };
 
   return (
@@ -197,42 +205,80 @@ function SOSButton() {
         <Text style={sos.btnTxt}>SOS</Text>
       </TouchableOpacity>
 
-      <Modal visible={visible} transparent animationType="slide" onRequestClose={() => setVisible(false)}>
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
         <View style={sos.overlay}>
           <View style={sos.sheet}>
             <View style={sos.bar} />
 
-            <View style={sos.header}>
-              <View style={sos.headerIcon}>
-                <Ionicons name="warning" size={26} color="#ef4444" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={sos.title}>Emergency Contacts</Text>
-                <Text style={sos.sub}>Tap any number to call immediately</Text>
-              </View>
-            </View>
-
-            {SOS_CONTACTS.map((c, i) => (
-              <TouchableOpacity key={i} style={sos.row} onPress={() => call(c.number)} activeOpacity={0.7}>
-                <View style={[sos.iconWrap, { backgroundColor: c.color + '18' }]}>
-                  <Ionicons name={c.icon} size={20} color={c.color} />
+            {/* ── Breakdown section — only when on an active trip ── */}
+            {activeJob && !confirmBreakdown && (
+              <TouchableOpacity style={sos.breakdownBtn} onPress={() => setConfirmBreakdown(true)} activeOpacity={0.85}>
+                <View style={sos.breakdownIcon}>
+                  <Ionicons name="construct-outline" size={20} color={AMBER} />
                 </View>
-                <View style={sos.rowText}>
-                  <Text style={sos.rowLabel}>{c.label}</Text>
-                  <Text style={sos.rowDesc}>{c.desc}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={sos.breakdownTitle}>I've broken down</Text>
+                  <Text style={sos.breakdownSub}>Tap to transfer your trip to another rider</Text>
                 </View>
-                <View style={[sos.callBtn, { backgroundColor: c.color }]}>
-                  <Ionicons name="call" size={13} color="#fff" style={{ marginBottom: 2 }} />
-                  <Text style={sos.callBtnTxt}>{c.number}</Text>
-                </View>
+                <Ionicons name="chevron-forward" size={18} color={AMBER} />
               </TouchableOpacity>
-            ))}
+            )}
 
-            <Text style={sos.note}>🔒  112 works even without airtime or signal</Text>
+            {/* ── Breakdown confirmation ── */}
+            {activeJob && confirmBreakdown && (
+              <View style={sos.breakdownConfirmCard}>
+                <View style={sos.breakdownConfirmIcon}>
+                  <Ionicons name="construct" size={28} color={AMBER} />
+                </View>
+                <Text style={sos.breakdownConfirmTitle}>Transfer this trip?</Text>
+                <Text style={sos.breakdownConfirmSub}>
+                  The system will immediately find another nearby rider to take over your delivery. Your customer won't be left waiting.
+                </Text>
+                <TouchableOpacity style={sos.breakdownConfirmYes} onPress={handleBreakdown} activeOpacity={0.85}>
+                  <Ionicons name="swap-horizontal-outline" size={18} color="#000" />
+                  <Text style={sos.breakdownConfirmYesTxt}>Yes, Transfer Now</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={sos.breakdownConfirmNo} onPress={() => setConfirmBreakdown(false)} activeOpacity={0.7}>
+                  <Text style={sos.breakdownConfirmNoTxt}>Go back</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
-            <TouchableOpacity style={sos.closeBtn} onPress={() => setVisible(false)} activeOpacity={0.85}>
-              <Text style={sos.closeBtnTxt}>Close</Text>
-            </TouchableOpacity>
+            {!confirmBreakdown && (
+              <>
+                <View style={sos.header}>
+                  <View style={sos.headerIcon}>
+                    <Ionicons name="warning" size={26} color="#ef4444" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={sos.title}>Emergency Contacts</Text>
+                    <Text style={sos.sub}>Tap any number to call immediately</Text>
+                  </View>
+                </View>
+
+                {SOS_CONTACTS.map((c, i) => (
+                  <TouchableOpacity key={i} style={sos.row} onPress={() => call(c.number)} activeOpacity={0.7}>
+                    <View style={[sos.iconWrap, { backgroundColor: c.color + '18' }]}>
+                      <Ionicons name={c.icon} size={20} color={c.color} />
+                    </View>
+                    <View style={sos.rowText}>
+                      <Text style={sos.rowLabel}>{c.label}</Text>
+                      <Text style={sos.rowDesc}>{c.desc}</Text>
+                    </View>
+                    <View style={[sos.callBtn, { backgroundColor: c.color }]}>
+                      <Ionicons name="call" size={13} color="#fff" style={{ marginBottom: 2 }} />
+                      <Text style={sos.callBtnTxt}>{c.number}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+
+                <Text style={sos.note}>🔒  112 works even without airtime or signal</Text>
+
+                <TouchableOpacity style={sos.closeBtn} onPress={close} activeOpacity={0.85}>
+                  <Text style={sos.closeBtnTxt}>Close</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -446,9 +492,17 @@ export default function RiderScreen({ navigation }) {
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'orders',
       }, (p) => {
-        // Remove order from available list the moment it's no longer pending
         if (p.new.status !== 'pending') {
+          // Order no longer available — remove from list
           setJobs(prev => prev.filter(j => j.id !== p.new.id));
+        } else {
+          // Order became pending again (e.g. rider breakdown reassignment)
+          const incoming = applyProximity(formatOrder(p.new));
+          if (!riderLocRef.current || !incoming._tooFar) {
+            setJobs(prev => prev.some(j => j.id === incoming.id) ? prev : [incoming, ...prev]);
+            playAlert();
+            setNewJobAlert(incoming);
+          }
         }
       })
       .subscribe();
@@ -593,6 +647,30 @@ export default function RiderScreen({ navigation }) {
     locationIntervalRef.current = null;
   };
 
+  const handleBreakdown = async () => {
+    if (!activeJob || String(activeJob.id).startsWith('m')) {
+      // Mock job — just release locally
+      stopLocationBroadcast();
+      setActiveJob(null);
+      setPinInput('');
+      setPinError(false);
+      setView('home');
+      showToast('🔧 Breakdown reported — trip released');
+      return;
+    }
+    // Reset order to pending so any online rider can pick it up
+    await supabase.from('orders').update({
+      status: 'pending',
+      rider_id: null,
+    }).eq('id', activeJob.id);
+    stopLocationBroadcast();
+    setActiveJob(null);
+    setPinInput('');
+    setPinError(false);
+    setView('home');
+    showToast('🔧 Breakdown reported — finding another rider for your customer');
+  };
+
   const acceptJob = async (job) => {
     if (!String(job.id).startsWith('m')) {
       const { error } = await supabase
@@ -659,7 +737,7 @@ export default function RiderScreen({ navigation }) {
       {view !== 'active' && <TopBar />}
 
       {/* ── Floating SOS button — always visible ── */}
-      <SOSButton />
+      <SOSButton activeJob={activeJob} onBreakdown={handleBreakdown} />
 
       {/* ── New job alert banner ── */}
       {online && newJobAlert && view !== 'active' && (
@@ -1336,6 +1414,45 @@ const sos = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginTop: 4,
   },
   closeBtnTxt: { fontSize: 15, fontWeight: '800', color: '#666' },
+
+  // Breakdown button
+  breakdownBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: 'rgba(245,158,11,0.1)', borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.3)', borderRadius: 18,
+    padding: 16, marginBottom: 16,
+  },
+  breakdownIcon: {
+    width: 40, height: 40, borderRadius: 13,
+    backgroundColor: 'rgba(245,158,11,0.15)',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  breakdownTitle: { fontSize: 15, fontWeight: '800', color: AMBER, marginBottom: 2 },
+  breakdownSub: { fontSize: 12, color: '#9a7020', fontWeight: '500' },
+
+  // Breakdown confirmation
+  breakdownConfirmCard: { alignItems: 'center', paddingVertical: 12, paddingBottom: 4 },
+  breakdownConfirmIcon: {
+    width: 64, height: 64, borderRadius: 22,
+    backgroundColor: 'rgba(245,158,11,0.15)',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 16,
+  },
+  breakdownConfirmTitle: { fontSize: 22, fontWeight: '900', color: '#fff', marginBottom: 10 },
+  breakdownConfirmSub: {
+    fontSize: 14, color: GREY, textAlign: 'center',
+    lineHeight: 22, marginBottom: 24, paddingHorizontal: 8,
+  },
+  breakdownConfirmYes: {
+    backgroundColor: AMBER, borderRadius: 16, height: 54, width: '100%',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, marginBottom: 10,
+  },
+  breakdownConfirmYesTxt: { fontSize: 16, fontWeight: '900', color: '#000' },
+  breakdownConfirmNo: {
+    height: 48, width: '100%',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  breakdownConfirmNoTxt: { fontSize: 14, fontWeight: '700', color: GREY },
 });
 
 const s = StyleSheet.create({
