@@ -871,9 +871,9 @@ export default function RiderScreen({ navigation }) {
           <View style={s.quickGrid}>
             {[
               { icon: 'wallet-outline',      label: 'Earnings',    color: LIME,      onPress: () => setView('earnings') },
-              { icon: 'trending-up-outline', label: 'Performance', color: '#3b82f6', onPress: () => {} },
-              { icon: 'time-outline',        label: 'History',     color: AMBER,     onPress: () => {} },
-              { icon: 'headset-outline',     label: 'Support',     color: '#a78bfa', onPress: () => {} },
+              { icon: 'trending-up-outline', label: 'Performance', color: '#3b82f6', onPress: () => setView('performance') },
+              { icon: 'time-outline',        label: 'History',     color: AMBER,     onPress: () => setView('history') },
+              { icon: 'headset-outline',     label: 'Support',     color: '#a78bfa', onPress: () => setView('support') },
             ].map((t, i) => (
               <TouchableOpacity key={i} style={s.quickTile} onPress={t.onPress} activeOpacity={0.7}>
                 <View style={[s.quickIcon, { backgroundColor: t.color + '15' }]}>
@@ -1058,6 +1058,157 @@ export default function RiderScreen({ navigation }) {
               <Text style={s.emptySub}>Complete your first run to see history here</Text>
             </View>
           )}
+        </ScrollView>
+      )}
+
+      {/* ── PERFORMANCE ── */}
+      {view === 'performance' && (
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
+            <Ionicons name="arrow-back" size={18} color={GREY} />
+            <Text style={s.backTxt}>Back</Text>
+          </TouchableOpacity>
+          <Text style={s.pageTitle}>Performance</Text>
+
+          {/* Rating hero */}
+          <View style={s.perfHero}>
+            <Text style={s.perfHeroLabel}>YOUR RATING</Text>
+            <Text style={s.perfHeroVal}>4.9</Text>
+            <View style={s.perfStars}>
+              {[1,2,3,4,5].map(i => (
+                <Ionicons key={i} name={i <= 4 ? 'star' : 'star-half'} size={20} color={LIME} />
+              ))}
+            </View>
+            <Text style={s.perfHeroSub}>Based on customer feedback</Text>
+          </View>
+
+          {/* Stat grid */}
+          <View style={s.perfGrid}>
+            {[
+              { label: 'Trips This Week', val: earningsHistory.trips, icon: 'bicycle-outline', color: LIME },
+              { label: 'Today\'s Earnings', val: `R ${earnings}`, icon: 'cash-outline', color: GREEN },
+              { label: 'Avg per Trip', val: earningsHistory.trips > 0 ? `R ${Math.round(earningsHistory.today / earningsHistory.trips)}` : '—', icon: 'trending-up-outline', color: '#3b82f6' },
+              { label: 'Best Day', val: `R ${Math.max(...weekAmts)}`, icon: 'trophy-outline', color: AMBER },
+            ].map((stat, i) => (
+              <View key={i} style={s.perfStatCard}>
+                <Ionicons name={stat.icon} size={20} color={stat.color} />
+                <Text style={[s.perfStatVal, { color: stat.color }]}>{stat.val}</Text>
+                <Text style={s.perfStatLabel}>{stat.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          <Text style={s.sectionLabel}>Weekly Activity</Text>
+          {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day, i) => (
+            <View key={i} style={s.earnRow}>
+              <Text style={s.earnDay}>{day}</Text>
+              <View style={s.earnBarBg}>
+                <View style={[s.earnBarFill, { width: `${Math.round((weekAmts[i] / maxAmt) * 100)}%`, backgroundColor: '#3b82f6' }]} />
+              </View>
+              <Text style={s.earnDayAmt}>R {weekAmts[i]}</Text>
+            </View>
+          ))}
+
+          <View style={[s.perfHero, { marginTop: 24, flexDirection: 'row', gap: 16, alignItems: 'center', justifyContent: 'flex-start' }]}>
+            <Ionicons name="checkmark-circle" size={28} color={GREEN} />
+            <View>
+              <Text style={[s.perfHeroLabel, { marginBottom: 2 }]}>COMPLETION RATE</Text>
+              <Text style={[s.perfHeroVal, { fontSize: 32, lineHeight: 36 }]}>100%</Text>
+            </View>
+          </View>
+        </ScrollView>
+      )}
+
+      {/* ── HISTORY ── */}
+      {view === 'history' && (
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
+            <Ionicons name="arrow-back" size={18} color={GREY} />
+            <Text style={s.backTxt}>Back</Text>
+          </TouchableOpacity>
+          <Text style={s.pageTitle}>History</Text>
+
+          {deliveryHistory.length > 0 ? (
+            deliveryHistory.map((item, i) => (
+              <View key={i} style={s.historyCard}>
+                <View style={s.historyCardTop}>
+                  <View style={s.historyIconLg}>
+                    <Ionicons name="checkmark-circle" size={22} color={GREEN} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.historyRoute} numberOfLines={1}>
+                      {item.from_address} → {item.to_address}
+                    </Text>
+                    <Text style={s.historyDate}>
+                      {new Date(item.created_at).toLocaleDateString('en-ZA', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                  <Text style={s.historyAmt}>R {(parseFloat(item.price) + parseFloat(item.tip || 0)).toFixed(0)}</Text>
+                </View>
+                {item.tip > 0 && (
+                  <View style={s.historyTipRow}>
+                    <Ionicons name="heart" size={12} color={LIME} />
+                    <Text style={s.historyTipTxt}>Includes R {item.tip} tip</Text>
+                  </View>
+                )}
+              </View>
+            ))
+          ) : (
+            <View style={s.emptyState}>
+              <Text style={s.emptyIcon}>📋</Text>
+              <Text style={s.emptyTitle}>No trips yet</Text>
+              <Text style={s.emptySub}>Your completed deliveries will appear here</Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* ── SUPPORT ── */}
+      {view === 'support' && (
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
+            <Ionicons name="arrow-back" size={18} color={GREY} />
+            <Text style={s.backTxt}>Back</Text>
+          </TouchableOpacity>
+          <Text style={s.pageTitle}>Support</Text>
+
+          {/* Contact options */}
+          <View style={s.supportContactRow}>
+            <TouchableOpacity style={s.supportContact} onPress={() => Linking.openURL('https://wa.me/27000000000')} activeOpacity={0.8}>
+              <View style={[s.supportContactIcon, { backgroundColor: '#25d36615' }]}>
+                <Ionicons name="logo-whatsapp" size={22} color="#25d366" />
+              </View>
+              <Text style={s.supportContactLbl}>WhatsApp</Text>
+              <Text style={s.supportContactSub}>Fastest reply</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.supportContact} onPress={() => Linking.openURL('mailto:support@runit.co.za')} activeOpacity={0.8}>
+              <View style={[s.supportContactIcon, { backgroundColor: '#3b82f615' }]}>
+                <Ionicons name="mail-outline" size={22} color="#3b82f6" />
+              </View>
+              <Text style={s.supportContactLbl}>Email</Text>
+              <Text style={s.supportContactSub}>support@runit.co.za</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* FAQ */}
+          <Text style={s.sectionLabel}>Common Questions</Text>
+          {[
+            { q: 'When do I get paid?', a: 'Earnings are available for instant cashout anytime, or auto-paid at 22:00 daily to your registered bank account.' },
+            { q: 'What if a customer gives the wrong PIN?', a: 'Ask the customer to check their SMS or app. If they cannot provide the correct PIN, contact support via WhatsApp before leaving.' },
+            { q: 'My GPS is inaccurate — what do I do?', a: 'Move to an open area and give the app a few seconds to get a fresh fix. Make sure location permissions are set to "Always Allow".' },
+            { q: 'Can I cancel an accepted order?', a: 'Contact support immediately if you need to cancel. Repeated cancellations affect your acceptance rate and may result in account suspension.' },
+            { q: 'How is my rating calculated?', a: 'Customers rate you after delivery. Your score is the rolling average of your last 100 ratings. Aim to be on time and professional.' },
+          ].map((faq, i) => (
+            <View key={i} style={s.faqCard}>
+              <Text style={s.faqQ}>{faq.q}</Text>
+              <Text style={s.faqA}>{faq.a}</Text>
+            </View>
+          ))}
+
+          <View style={s.supportFooter}>
+            <Text style={s.supportVersion}>RunIt · Rider App · v1.0</Text>
+            <Text style={s.supportVersion}>Cape Town, South Africa</Text>
+          </View>
         </ScrollView>
       )}
 
@@ -1376,6 +1527,43 @@ const s = StyleSheet.create({
   historyRoute: { fontSize: 13, fontWeight: '700', color: '#fff', marginBottom: 3 },
   historyDate: { fontSize: 11, color: GREY },
   historyAmt: { fontSize: 16, fontWeight: '900', color: GREEN, flexShrink: 0 },
+
+  // History view
+  historyCard: { backgroundColor: SURFACE, borderRadius: 18, padding: 16, marginBottom: 10 },
+  historyCardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  historyIconLg: { width: 40, height: 40, borderRadius: 14, backgroundColor: GREEN + '18', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  historyTipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderColor: '#1e1e1e' },
+  historyTipTxt: { fontSize: 12, color: LIME, fontWeight: '600' },
+
+  // Performance view
+  perfHero: {
+    backgroundColor: 'rgba(59,130,246,0.08)', borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.2)', borderRadius: 24,
+    padding: 24, alignItems: 'center', marginBottom: 20,
+  },
+  perfHeroLabel: { fontSize: 10, fontWeight: '700', color: '#6090c0', letterSpacing: 3, marginBottom: 8 },
+  perfHeroVal: { fontSize: 64, fontWeight: '900', color: '#3b82f6', letterSpacing: -2, lineHeight: 68 },
+  perfStars: { flexDirection: 'row', gap: 4, marginTop: 8, marginBottom: 6 },
+  perfHeroSub: { fontSize: 12, color: '#6090c0', fontWeight: '600' },
+  perfGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 24 },
+  perfStatCard: {
+    flex: 1, minWidth: '45%', backgroundColor: SURFACE, borderRadius: 18,
+    padding: 16, alignItems: 'flex-start', gap: 6,
+  },
+  perfStatVal: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
+  perfStatLabel: { fontSize: 11, color: GREY, fontWeight: '600' },
+
+  // Support view
+  supportContactRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
+  supportContact: { flex: 1, backgroundColor: SURFACE, borderRadius: 18, padding: 18, alignItems: 'center', gap: 8 },
+  supportContactIcon: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  supportContactLbl: { fontSize: 14, fontWeight: '800', color: '#fff' },
+  supportContactSub: { fontSize: 11, color: GREY, fontWeight: '500' },
+  faqCard: { backgroundColor: SURFACE, borderRadius: 18, padding: 18, marginBottom: 10 },
+  faqQ: { fontSize: 14, fontWeight: '800', color: '#fff', marginBottom: 8 },
+  faqA: { fontSize: 13, color: GREY, lineHeight: 20, fontWeight: '500' },
+  supportFooter: { alignItems: 'center', marginTop: 32, gap: 4 },
+  supportVersion: { fontSize: 11, color: MUTED, fontWeight: '500' },
 
   // Post-delivery summary
   summaryHero: { alignItems: 'center', paddingVertical: 28, marginBottom: 8 },
