@@ -23,6 +23,28 @@ const RATE = 6.5;
 
 // ─── Geocoding ────────────────────────────────────────────────────────────
 
+async function reverseGeocode(lat, lon) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`,
+      { headers: { 'User-Agent': 'RunIt/1.0' } }
+    );
+    const data = await res.json();
+    const a = data.address || {};
+    const landmark = a.amenity || a.tourism || a.shop || a.leisure || a.office || a.building;
+    const street = [a.house_number, a.road].filter(Boolean).join(' ');
+    const area = a.suburb || a.neighbourhood || a.city_district || a.town;
+    if (landmark && area) return `${landmark}, ${area}`;
+    if (landmark) return landmark;
+    if (street && area) return `${street}, ${area}`;
+    if (street) return street;
+    if (area) return area;
+    return data.display_name?.split(', ').slice(0, 3).join(', ') || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  } catch (_) {
+    return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  }
+}
+
 async function fetchSuggestions(query) {
   if (query.length < 2) return [];
   try {
@@ -116,6 +138,139 @@ var riderMarker=null;
 window.updateRider=function(lat,lon){if(riderMarker){var el=riderMarker.getElement();if(el){el.style.transition='transform 4500ms linear';}riderMarker.setLatLng([lat,lon]);}else{riderMarker=L.marker([lat,lon],{icon:iconR}).bindTooltip('On the way 🏍️',{permanent:true,direction:'top',className:'tip',offset:[0,-14]}).addTo(map);}};
 window.addEventListener('message',function(e){if(e.data&&e.data.type==='updateRider'){window.updateRider(e.data.lat,e.data.lon);}});
 </script></body></html>`;
+}
+
+// ─── Booking map HTML (draggable pins + tap-to-place) ─────────────────────
+
+function buildBookingMapHtml(initFrom, initTo) {
+  const c = initFrom || initTo || { lat: -33.9249, lon: 18.4241 };
+  return `<!DOCTYPE html><html><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#080808}
+#map{width:100%;height:100%}
+.leaflet-control-attribution,.leaflet-control-zoom{display:none}
+.tip{background:rgba(8,8,8,0.92);border:1px solid #1e1e1e;color:#fff;font-size:11px;font-weight:700;font-family:-apple-system,sans-serif;padding:4px 10px;border-radius:20px;white-space:nowrap;box-shadow:none}
+.tip::before{display:none}
+#hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(8,8,8,0.88);border:1px solid #2a2a2a;color:#888;font-size:11px;font-weight:600;font-family:-apple-system,sans-serif;padding:5px 14px;border-radius:20px;white-space:nowrap;z-index:1000;pointer-events:none;transition:opacity 0.3s}
+</style>
+</head><body>
+<div id="map"></div>
+<div id="hint">Tap map to set pickup point</div>
+<script>
+var map=L.map('map',{zoomControl:false,attributionControl:false});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:18}).addTo(map);
+map.setView([${c.lat},${c.lon}],14);
+var iconA=L.divIcon({html:'<div style="width:20px;height:20px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 0 16px 4px rgba(200,240,0,0.7);cursor:grab"></div>',iconSize:[20,20],iconAnchor:[10,10],className:''});
+var iconB=L.divIcon({html:'<div style="width:20px;height:20px;border-radius:50%;background:#ef4444;border:3px solid #080808;box-shadow:0 0 16px 4px rgba(239,68,68,0.6);cursor:grab"></div>',iconSize:[20,20],iconAnchor:[10,10],className:''});
+var markerA=null,markerB=null,routeLayers=[];
+function send(pin,ll){
+  var m={type:'pinMoved',pin:pin,lat:ll.lat,lon:ll.lng};
+  try{window.parent.postMessage(m,'*');}catch(e){}
+  try{if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify(m));}catch(e){}
+}
+function clearRoute(){routeLayers.forEach(function(l){map.removeLayer(l);});routeLayers=[];}
+function drawRoute(){
+  if(!markerA||!markerB)return;
+  var a=markerA.getLatLng(),b=markerB.getLatLng();
+  clearRoute();
+  fetch('https://router.project-osrm.org/route/v1/driving/'+a.lng+','+a.lat+';'+b.lng+','+b.lat+'?overview=full&geometries=geojson')
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(!d.routes||!d.routes[0])return;
+      var coords=d.routes[0].geometry.coordinates.map(function(c){return[c[1],c[0]];});
+      routeLayers.push(L.polyline(coords,{color:'#c8f000',weight:8,opacity:0.12}).addTo(map));
+      routeLayers.push(L.polyline(coords,{color:'#c8f000',weight:3,opacity:0.85}).addTo(map));
+      map.fitBounds(L.latLngBounds([a,b]).pad(0.3));
+    }).catch(function(){});
+}
+function hint(){
+  var h=document.getElementById('hint');if(!h)return;
+  if(!markerA){h.innerText='Tap map to set pickup point';h.style.opacity='1';}
+  else if(!markerB){h.innerText='Now tap to set drop-off';h.style.opacity='1';}
+  else{h.style.opacity='0';}
+}
+function placeA(ll,fromReact){
+  if(markerA){markerA.setLatLng(ll);}
+  else{markerA=L.marker(ll,{icon:iconA,draggable:true}).bindTooltip('Pickup',{permanent:true,direction:'top',className:'tip',offset:[0,-12]}).addTo(map);
+    markerA.on('dragend',function(){send('from',markerA.getLatLng());drawRoute();});}
+  if(!fromReact)send('from',ll);
+  if(markerB)drawRoute();
+  hint();
+}
+function placeB(ll,fromReact){
+  if(markerB){markerB.setLatLng(ll);}
+  else{markerB=L.marker(ll,{icon:iconB,draggable:true}).bindTooltip('Drop-off',{permanent:true,direction:'bottom',className:'tip',offset:[0,10]}).addTo(map);
+    markerB.on('dragend',function(){send('to',markerB.getLatLng());drawRoute();});}
+  if(!fromReact)send('to',ll);
+  if(markerA)drawRoute();
+  hint();
+}
+map.on('click',function(e){
+  if(!markerA)placeA(e.latlng,false);
+  else if(!markerB){placeB(e.latlng,false);map.fitBounds(L.latLngBounds([markerA.getLatLng(),e.latlng]).pad(0.3));}
+});
+window.addEventListener('message',function(e){
+  if(!e.data||e.data.type!=='setPin')return;
+  var ll=L.latLng(e.data.lat,e.data.lon);
+  if(e.data.pin==='from')placeA(ll,true);
+  else placeB(ll,true);
+  if(markerA&&markerB)map.fitBounds(L.latLngBounds([markerA.getLatLng(),markerB.getLatLng()]).pad(0.3));
+  else map.setView(ll,15);
+});
+${initFrom ? `placeA(L.latLng(${initFrom.lat},${initFrom.lon}),true);` : ''}
+${initTo ? `placeB(L.latLng(${initTo.lat},${initTo.lon}),true);` : ''}
+hint();
+</script></body></html>`;
+}
+
+// ─── Booking map component (always visible, draggable pins) ───────────────
+
+function BookingMap({ fromCoords, toCoords, onPinMove }) {
+  const iframeRef = useRef(null);
+  const webViewRef = useRef(null);
+  const html = buildBookingMapHtml(fromCoords, toCoords);
+
+  const sendToMap = (msg) => {
+    if (Platform.OS === 'web') {
+      iframeRef.current?.contentWindow?.postMessage(msg, '*');
+    } else {
+      webViewRef.current?.injectJavaScript(
+        `window.dispatchEvent(new MessageEvent('message',{data:${JSON.stringify(msg)}}));true;`
+      );
+    }
+  };
+
+  useEffect(() => {
+    if (fromCoords) sendToMap({ type: 'setPin', pin: 'from', lat: fromCoords.lat, lon: fromCoords.lon });
+  }, [fromCoords?.lat, fromCoords?.lon]);
+
+  useEffect(() => {
+    if (toCoords) sendToMap({ type: 'setPin', pin: 'to', lat: toCoords.lat, lon: toCoords.lon });
+  }, [toCoords?.lat, toCoords?.lon]);
+
+  if (Platform.OS === 'web') {
+    return (
+      <View style={s.bookingMapCard}>
+        <iframe ref={iframeRef} srcDoc={html}
+          style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+          sandbox="allow-scripts" />
+      </View>
+    );
+  }
+  return (
+    <View style={s.bookingMapCard}>
+      <WebView ref={webViewRef} source={{ html }} style={{ flex: 1, backgroundColor: BG }}
+        scrollEnabled={false} originWhitelist={['*']}
+        onMessage={(e) => {
+          try { const d = JSON.parse(e.nativeEvent.data); if (d.type === 'pinMoved') onPinMove?.(d.pin, d.lat, d.lon); } catch (_) {}
+        }} />
+    </View>
+  );
 }
 
 // ─── Route map — web + native ─────────────────────────────────────────────
@@ -251,6 +406,7 @@ export default function CustomerScreen({ navigation }) {
   const suggestDebounceRef = useRef(null);
   const orderSubRef = useRef(null);
   const riderLocSubRef = useRef(null);
+  const pinMoveHandlerRef = useRef(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id || null));
@@ -260,6 +416,31 @@ export default function CustomerScreen({ navigation }) {
       orderSubRef.current?.unsubscribe();
       riderLocSubRef.current?.unsubscribe();
     };
+  }, []);
+
+  // Keep pin-move handler fresh so it always sees latest coords/size
+  useEffect(() => {
+    pinMoveHandlerRef.current = async (pin, lat, lon) => {
+      const label = await reverseGeocode(lat, lon);
+      const coords = { lat, lon };
+      if (pin === 'from') {
+        setFrom(label); setFromCoords(coords); setFromConfirmed(true);
+        if (toCoords) calcRouteWithCoords(coords, toCoords, packageSize);
+      } else {
+        setTo(label); setToCoords(coords); setToConfirmed(true);
+        if (fromCoords) calcRouteWithCoords(fromCoords, coords, packageSize);
+      }
+    };
+  }, [fromCoords, toCoords, packageSize]);
+
+  // Global listener for pin-move messages from the booking map iframe (web only)
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const handler = (e) => {
+      if (e.data?.type === 'pinMoved') pinMoveHandlerRef.current?.(e.data.pin, e.data.lat, e.data.lon);
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
   }, []);
 
   const showToast = (msg) => {
@@ -564,11 +745,14 @@ export default function CustomerScreen({ navigation }) {
             </View>
           )}
 
+          <BookingMap
+            fromCoords={fromCoords}
+            toCoords={toCoords}
+            onPinMove={(pin, lat, lon) => pinMoveHandlerRef.current?.(pin, lat, lon)}
+          />
+
           {routeReady && (
-            <>
-              <RouteVisual from={from} to={to} dist={dist} eta={eta} />
-              <RouteMap fromCoords={fromCoords} toCoords={toCoords} routeCoords={routeCoords} fromLabel={from} toLabel={to} />
-            </>
+            <RouteVisual from={from} to={to} dist={dist} eta={eta} />
           )}
 
           {/* Package size */}
@@ -865,6 +1049,8 @@ const s = StyleSheet.create({
   addrInput: { fontSize: 17, fontWeight: '700', color: '#888', outlineStyle: 'none' },
   addrSep: { paddingLeft: 44, paddingRight: 20 },
   addrLine: { height: 1, backgroundColor: BORDER },
+
+  bookingMapCard: { height: 260, borderRadius: 20, overflow: 'hidden', marginBottom: 16, borderWidth: 1, borderColor: '#1a1a1a' },
 
   calcRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
   calcTxt: { fontSize: 13, color: GREY, fontWeight: '600' },
