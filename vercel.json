@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npx expo export --platform web",
+  "buildCommand": "npx expo export --platform web && bash patch-web.sh",
   "outputDirectory": "dist",
   "framework": null,
   "rewrites": [
