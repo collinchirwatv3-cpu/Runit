@@ -594,15 +594,15 @@ export default function SettingsScreen({ navigation }) {
           </View>
         ))}
 
-        <View style={s.section}>
-          <Text style={s.sectionTitle}>Help & FAQs</Text>
-          <FaqSection role={userRole} />
-        </View>
-
         <TouchableOpacity style={s.signOutBtn} onPress={handleSignOut} activeOpacity={0.8}>
           <Ionicons name="power-outline" size={18} color="#ef4444" />
           <Text style={s.signOutTxt}>Sign Out</Text>
         </TouchableOpacity>
+
+        <View style={[s.section, { marginTop: 24 }]}>
+          <Text style={s.sectionTitle}>Help & FAQs</Text>
+          <FaqSection role={userRole} />
+        </View>
 
       </ScrollView>
 
@@ -612,9 +612,11 @@ export default function SettingsScreen({ navigation }) {
       <PaymentMethodsSheet visible={showPayment} onClose={() => setShowPayment(false)} />
       <FeedbackSheet visible={showFeedback} onClose={() => setShowFeedback(false)} />
       <BottomBar active="settings" role={userRole} onPress={(tabId) => {
-        if (tabId === 'home') navigation.navigate(userRole === 'rider' ? 'Rider' : 'Customer');
-        else if (tabId === 'orders') navigation.navigate('Orders');
-        else if (tabId === 'profile') navigation.navigate('Profile');
+        if      (tabId === 'home')     navigation.navigate(userRole === 'rider' ? 'Rider' : 'Customer');
+        else if (tabId === 'orders')   navigation.navigate('Orders');
+        else if (tabId === 'profile')  navigation.navigate('Profile');
+        else if (tabId === 'jobs')     navigation.navigate('Rider');
+        else if (tabId === 'earnings') navigation.navigate('Rider');
       }} />
     </View>
   );
@@ -623,7 +625,7 @@ export default function SettingsScreen({ navigation }) {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 24, paddingTop: 90, paddingBottom: 100 },
+  content: { paddingHorizontal: 24, paddingTop: 90, paddingBottom: 140 },
 
   headline: { fontSize: 52, fontWeight: '900', color: '#fff', letterSpacing: -1, marginBottom: 32 },
 
