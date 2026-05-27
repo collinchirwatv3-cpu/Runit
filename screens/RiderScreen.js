@@ -1187,16 +1187,26 @@ export default function RiderScreen({ navigation }) {
 
           <TouchableOpacity
             style={[s.onlineCard, online && s.onlineCardActive]}
-            onPress={() => {
+            onPress={async () => {
               if (!online) {
-                // Disc check before going online
+                // Check suspension & disc before going online
+                if (userId) {
+                  const { data: verif } = await supabase
+                    .from('rider_verifications')
+                    .select('status, disc_expiry')
+                    .eq('rider_id', userId)
+                    .maybeSingle();
+                  if (verif?.status === 'suspended') {
+                    showToast('Your account is suspended — contact support');
+                    return;
+                  }
+                }
                 if (discInfo && discInfo.daysLeft < 0) {
                   showToast('License disc expired — renew before going online');
                   return;
                 }
                 if (discInfo && discInfo.daysLeft <= 7) {
                   showToast(`⚠️ Disc expires in ${discInfo.daysLeft} day${discInfo.daysLeft === 1 ? '' : 's'} — renew soon`);
-                  // still allow going online for <= 7 days, block at 0
                 }
               }
               setOnline(!online);
