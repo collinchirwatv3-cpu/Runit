@@ -1,17 +1,25 @@
 const crypto = require('crypto');
 
+// PayFast signature: alphabetical key sort, PHP-style urlencode (spaces → +)
 function buildSignature(data, passphrase) {
   const pfString = Object.keys(data)
     .filter((k) => data[k] !== '' && data[k] !== null && data[k] !== undefined)
     .sort()
-    .map((k) => `${k}=${encodeURIComponent(String(data[k])).replace(/%20/g, '+')}`)
+    .map((k) => `${k}=${phpUrlencode(String(data[k]))}`)
     .join('&');
 
   const toHash = passphrase
-    ? `${pfString}&passphrase=${encodeURIComponent(passphrase).replace(/%20/g, '+')}`
+    ? `${pfString}&passphrase=${phpUrlencode(passphrase)}`
     : pfString;
 
   return crypto.createHash('md5').update(toHash).digest('hex');
+}
+
+// Matches PHP urlencode() exactly
+function phpUrlencode(str) {
+  return encodeURIComponent(str)
+    .replace(/%20/g, '+')
+    .replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 }
 
 module.exports = async (req, res) => {
@@ -51,6 +59,6 @@ module.exports = async (req, res) => {
     ? 'https://sandbox.payfast.co.za/eng/process'
     : 'https://www.payfast.co.za/eng/process';
 
-  const params = new URLSearchParams(paymentData);
-  res.json({ url: `${baseUrl}?${params.toString()}` });
+  // Return fields for POST form submission (not GET URL)
+  res.json({ action: baseUrl, fields: paymentData });
 };

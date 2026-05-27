@@ -861,7 +861,22 @@ export default function CustomerScreen({ navigation }) {
           body: JSON.stringify({ orderId, amount: price, itemName: 'RunIt Delivery' }),
         });
         const json = await res.json();
-        if (json.url) { window.location.href = json.url; return; }
+        if (json.action && json.fields) {
+          // POST form to PayFast (required — GET URLs are rejected)
+          const form = document.createElement('form');
+          form.method = 'POST';
+          form.action = json.action;
+          Object.entries(json.fields).forEach(([k, v]) => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = k;
+            input.value = v;
+            form.appendChild(input);
+          });
+          document.body.appendChild(form);
+          form.submit();
+          return;
+        }
       } catch (_) {}
       // PayFast not configured — activate order directly (dev/staging fallback)
       await supabase.from('orders').update({ status: 'pending', payment_status: 'paid' }).eq('id', orderId);
