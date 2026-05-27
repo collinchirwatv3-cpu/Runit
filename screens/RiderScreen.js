@@ -307,43 +307,160 @@ function buildRiderTripMapHtml(initRider, fromCoords, toCoords) {
   const tLL = toCoords   ? `[${toCoords.lat},${toCoords.lon}]`     : 'null';
   const rLL = initRider  ? `[${initRider.lat},${initRider.lon}]`   : 'null';
   return `<!DOCTYPE html><html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body,#map{height:100%;width:100%;background:#080808}
-.rider-icon{font-size:26px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.9))}
+html,body{height:100%;width:100%;overflow:hidden;background:#1a237e}
+#nav-banner{
+  position:fixed;top:0;left:0;right:0;z-index:2000;
+  background:#1565c0;display:flex;align-items:center;gap:14px;
+  padding:14px 18px;box-shadow:0 4px 20px rgba(0,0,0,0.5);
+}
+#nav-icon{
+  width:50px;height:50px;background:rgba(255,255,255,0.15);border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:28px;flex-shrink:0;
+}
+#nav-info{flex:1;min-width:0}
+#nav-dist{font-size:26px;font-weight:900;color:#fff;line-height:1}
+#nav-road{font-size:13px;color:rgba(255,255,255,0.75);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#map-wrap{position:fixed;top:80px;left:0;right:0;bottom:72px}
+#map{width:100%;height:100%}
+#bottom-bar{
+  position:fixed;bottom:0;left:0;right:0;height:72px;
+  background:#fff;display:flex;align-items:center;
+  padding:0 20px;gap:16px;box-shadow:0 -2px 16px rgba(0,0,0,0.12);
+}
+#eta-min{font-size:34px;font-weight:900;color:#c62828;line-height:1}
+#eta-lbl{font-size:11px;color:#999;font-weight:700;margin-top:2px}
+#divider{width:1px;height:36px;background:#e0e0e0;flex-shrink:0}
+#dist-box{flex:1}
+#dist-val{font-size:16px;font-weight:700;color:#222}
+#arrive-val{font-size:12px;color:#999;margin-top:2px}
+#recenter-btn{
+  position:fixed;bottom:84px;right:12px;z-index:1500;
+  width:44px;height:44px;border-radius:22px;
+  background:#fff;border:none;cursor:pointer;font-size:22px;
+  box-shadow:0 2px 12px rgba(0,0,0,0.25);
+  display:flex;align-items:center;justify-content:center;
+}
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-</head><body><div id="map"></div><script>
-const map=L.map('map',{zoomControl:false,attributionControl:false}).setView([${cLat},${cLon}],16);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-L.control.zoom({position:'bottomright'}).addTo(map);
-let routeLine=null,riderMarker=null;
+<script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
+</head><body>
+<div id="nav-banner">
+  <div id="nav-icon">↑</div>
+  <div id="nav-info">
+    <div id="nav-dist">Calculating…</div>
+    <div id="nav-road">Loading route</div>
+  </div>
+</div>
+<div id="map-wrap"><div id="map"></div></div>
+<div id="bottom-bar">
+  <div style="text-align:center">
+    <div id="eta-min">—</div>
+    <div id="eta-lbl">MIN</div>
+  </div>
+  <div id="divider"></div>
+  <div id="dist-box">
+    <div id="dist-val">—</div>
+    <div id="arrive-val">—</div>
+  </div>
+</div>
+<button id="recenter-btn" onclick="recentre()">⊕</button>
+<script>
 const fLL=${fLL}, tLL=${tLL}, rLL=${rLL};
-if(fLL) L.circleMarker(fLL,{radius:10,color:'#c8f000',fillColor:'#c8f000',fillOpacity:1,weight:3}).addTo(map).bindTooltip('Pickup',{permanent:false});
-if(tLL) L.circleMarker(tLL,{radius:10,color:'#ef4444',fillColor:'#ef4444',fillOpacity:1,weight:3}).addTo(map).bindTooltip('Drop-off',{permanent:false});
-const riderIcon=L.divIcon({className:'',html:'<div class="rider-icon">🏍️</div>',iconSize:[36,36],iconAnchor:[18,18]});
+const map=L.map('map',{rotate:true,bearing:0,zoomControl:false,attributionControl:false}).setView([${cLat},${cLon}],18);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{maxZoom:20,subdomains:'abcd'}).addTo(map);
+let routeOutline=null,routeLine=null,riderMarker=null,routeSteps=[],riderLL=rLL?L.latLng(rLL[0],rLL[1]):null,prevLL=null,bearing=0,autoFollow=true;
+function fmtDist(m){return m<1000?Math.round(m/10)*10+' m':(m/1000).toFixed(1)+' km'}
+function fmtMin(s){const m=Math.round(s/60);return m<60?m:Math.floor(m/60)+'h '+(m%60)+'m'}
+function arrTime(s){const d=new Date(Date.now()+s*1000);return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+function calcBearing(a,b){
+  const r=Math.PI/180,φ1=a.lat*r,φ2=b.lat*r,Δλ=(b.lng-a.lng)*r;
+  const y=Math.sin(Δλ)*Math.cos(φ2),x=Math.cos(φ1)*Math.sin(φ2)-Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+  return(Math.atan2(y,x)*180/Math.PI+360)%360;
+}
+function maneuverArrow(type,mod){
+  if(!type||type==='depart'||type==='new name')return'↑';
+  if(type==='arrive')return'📍';
+  if(type==='roundabout'||type==='rotary')return'↻';
+  if(!mod)return'↑';
+  if(mod.includes('sharp right'))return'↱';
+  if(mod.includes('right'))return'→';
+  if(mod.includes('sharp left'))return'↰';
+  if(mod.includes('left'))return'←';
+  if(mod.includes('uturn'))return'↩';
+  return'↑';
+}
+function makeRiderIcon(){
+  return L.divIcon({className:'',html:'<div style="width:24px;height:24px;background:#1565c0;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center"><div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:10px solid #fff;margin-top:-2px"></div></div>',iconSize:[24,24],iconAnchor:[12,12]});
+}
+function updateNav(){
+  if(!riderLL||!routeSteps.length)return;
+  let nearI=0,nearD=Infinity;
+  routeSteps.forEach((s,i)=>{
+    if(!s.maneuver)return;
+    const d=riderLL.distanceTo(L.latLng(s.maneuver.location[1],s.maneuver.location[0]));
+    if(d<nearD){nearD=d;nearI=i;}
+  });
+  const next=routeSteps[Math.min(nearI+1,routeSteps.length-1)];
+  document.getElementById('nav-icon').textContent=maneuverArrow(next?.maneuver?.type,next?.maneuver?.modifier);
+  document.getElementById('nav-dist').textContent=fmtDist(nearD);
+  document.getElementById('nav-road').textContent=next?.name||routeSteps[nearI]?.name||'Continue';
+}
 function placeRider(lat,lon){
-  const ll=[lat,lon];
+  const ll=L.latLng(lat,lon);
+  if(prevLL){bearing=calcBearing(prevLL,ll);}
+  prevLL=riderLL; riderLL=ll;
   if(riderMarker){riderMarker.setLatLng(ll);}
-  else{riderMarker=L.marker(ll,{icon:riderIcon,zIndexOffset:1000}).addTo(map);}
+  else{riderMarker=L.marker(ll,{icon:makeRiderIcon(),zIndexOffset:1000}).addTo(map);}
+  if(autoFollow){
+    map.setBearing(bearing,{animate:false});
+    map.setView(ll,18,{animate:true,duration:0.8,easeLinearity:0.5,noMoveStart:true});
+  }
+  updateNav();
 }
 async function drawRoute(from,to){
   try{
-    const url='https://router.project-osrm.org/route/v1/driving/'+from[1]+','+from[0]+';'+to[1]+','+to[0]+'?geometries=geojson';
-    const d=await(await fetch(url)).json();
-    const coords=d.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+    const url='https://router.project-osrm.org/route/v1/driving/'+from[1]+','+from[0]+';'+to[1]+','+to[0]+'?geometries=geojson&steps=true&overview=full';
+    const data=await(await fetch(url)).json();
+    const route=data.routes[0];
+    const coords=route.geometry.coordinates.map(c=>[c[1],c[0]]);
+    routeSteps=route.legs.flatMap(l=>l.steps);
+    if(routeOutline)map.removeLayer(routeOutline);
     if(routeLine)map.removeLayer(routeLine);
-    routeLine=L.polyline(coords,{color:'#c8f000',weight:5,opacity:0.9}).addTo(map);
-  }catch(_){}
+    routeOutline=L.polyline(coords,{color:'#fff',weight:11,opacity:0.5}).addTo(map);
+    routeLine=L.polyline(coords,{color:'#1565c0',weight:7,opacity:1}).addTo(map);
+    document.getElementById('eta-min').textContent=fmtMin(route.duration);
+    document.getElementById('dist-val').textContent=fmtDist(route.distance);
+    document.getElementById('arrive-val').textContent='Arrive ~'+arrTime(route.duration);
+    if(routeSteps.length>1){
+      const s=routeSteps[1];
+      document.getElementById('nav-icon').textContent=maneuverArrow(s?.maneuver?.type,s?.maneuver?.modifier);
+      document.getElementById('nav-dist').textContent=fmtDist(routeSteps[0]?.distance||0);
+      document.getElementById('nav-road').textContent=s?.name||'Head towards destination';
+    }
+    if(!riderLL)map.fitBounds(L.latLngBounds(coords),{padding:[80,60],maxZoom:17});
+  }catch(e){document.getElementById('nav-road').textContent='Route unavailable';}
+}
+function recentre(){
+  autoFollow=true;
+  if(riderLL){map.setBearing(bearing,{animate:false});map.setView(riderLL,18,{animate:true});}
+}
+map.on('dragstart',()=>{autoFollow=false;});
+if(fLL){
+  L.marker(fLL,{icon:L.divIcon({className:'',html:'<div style="width:18px;height:18px;background:#c8f000;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);
+}
+if(tLL){
+  L.marker(tLL,{icon:L.divIcon({className:'',html:'<div style="width:18px;height:18px;background:#ef4444;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);
 }
 if(fLL&&tLL)drawRoute(fLL,tLL);
 if(rLL)placeRider(rLL[0],rLL[1]);
 window.addEventListener('message',e=>{
-  const d=e.data;
-  if(!d)return;
-  if(d.type==='riderPos'){placeRider(d.lat,d.lon);map.panTo([d.lat,d.lon],{animate:true,duration:1.2});}
+  const d=e.data; if(!d)return;
+  if(d.type==='riderPos')placeRider(d.lat,d.lon);
   if(d.type==='setRoute'&&d.from&&d.to)drawRoute([d.from.lat,d.from.lon],[d.to.lat,d.to.lon]);
 });
 </script></body></html>`;
