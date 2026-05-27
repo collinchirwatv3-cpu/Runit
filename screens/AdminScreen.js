@@ -23,6 +23,17 @@ export default function AdminScreen({ navigation }) {
   const [rejectReason, setRejectReason] = useState('');
   const sub = useRef(null);
 
+  // Helpers for disc expiry display
+  const discStatus = (expiry) => {
+    if (!expiry) return null;
+    const exp = new Date(expiry);
+    const now = new Date();
+    const days = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+    if (days < 0) return { label: 'Expired', color: '#ef4444', bg: '#ef444420', days };
+    if (days <= 30) return { label: `Expires in ${days}d`, color: '#f59e0b', bg: '#f59e0b20', days };
+    return { label: `Valid · ${exp.toLocaleDateString('en-ZA', { month: 'short', year: 'numeric' })}`, color: '#22c55e', bg: '#22c55e20', days };
+  };
+
   const fetchAll = async () => {
     setLoading(true);
     const [{ data: vData }, { data: pData }] = await Promise.all([
@@ -216,7 +227,33 @@ export default function AdminScreen({ navigation }) {
                   <Ionicons name="bicycle-outline" size={15} color={LIME} />
                   <Text style={s.docTxt}>Bike Photo</Text>
                 </TouchableOpacity>
+                {v.disc_url && (
+                  <TouchableOpacity
+                    style={s.docBtn}
+                    onPress={() => Linking.openURL(v.disc_url)}
+                  >
+                    <Ionicons name="shield-checkmark-outline" size={15} color={LIME} />
+                    <Text style={s.docTxt}>Disc</Text>
+                  </TouchableOpacity>
+                )}
               </View>
+
+              {/* Disc expiry badge */}
+              {(() => {
+                const ds = discStatus(v.disc_expiry);
+                if (!ds) return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="warning-outline" size={13} color={MUTED} />
+                    <Text style={{ color: MUTED, fontSize: 12 }}>No disc expiry submitted</Text>
+                  </View>
+                );
+                return (
+                  <View style={[s.discBadge, { backgroundColor: ds.bg }]}>
+                    <Ionicons name={ds.days < 0 ? 'close-circle' : ds.days <= 30 ? 'warning' : 'shield-checkmark'} size={13} color={ds.color} />
+                    <Text style={[s.discBadgeTxt, { color: ds.color }]}>Disc: {ds.label}</Text>
+                  </View>
+                );
+              })()}
 
               {v.rejection_reason ? (
                 <View style={s.reasonBox}>
@@ -346,4 +383,9 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   confirmRejectTxt: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  discBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, alignSelf: 'flex-start',
+  },
+  discBadgeTxt: { fontSize: 12, fontWeight: '700' },
 });

@@ -577,6 +577,7 @@ export default function RiderScreen({ navigation }) {
   const [showBankDetails, setShowBankDetails] = useState(false);
   const [bankForm, setBankForm] = useState({ bank: '', accountHolder: '', account: '', branch: '', accountType: 'cheque' });
   const [bankSaving, setBankSaving] = useState(false);
+  const [discInfo, setDiscInfo] = useState(null); // { expiry: Date, daysLeft: number }
   const [cancelLoading, setCancelLoading] = useState(false);
   const locationIntervalRef = useRef(null);
   const sub = useRef(null);
@@ -595,7 +596,7 @@ export default function RiderScreen({ navigation }) {
   };
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       const uid = data?.user?.id || null;
       setUserId(uid);
       if (uid) loadEarnings(uid);
@@ -609,6 +610,20 @@ export default function RiderScreen({ navigation }) {
       };
       setBankDetails(bd);
       setBankForm(bd);
+
+      // Load disc expiry from verification record
+      if (uid) {
+        const { data: verif } = await supabase
+          .from('rider_verifications')
+          .select('disc_expiry')
+          .eq('rider_id', uid)
+          .maybeSingle();
+        if (verif?.disc_expiry) {
+          const exp = new Date(verif.disc_expiry);
+          const days = Math.ceil((exp - new Date()) / (1000 * 60 * 60 * 24));
+          setDiscInfo({ expiry: exp, daysLeft: days });
+        }
+      }
     });
   }, []);
 
@@ -1172,7 +1187,20 @@ export default function RiderScreen({ navigation }) {
 
           <TouchableOpacity
             style={[s.onlineCard, online && s.onlineCardActive]}
-            onPress={() => setOnline(!online)}
+            onPress={() => {
+              if (!online) {
+                // Disc check before going online
+                if (discInfo && discInfo.daysLeft < 0) {
+                  showToast('License disc expired — renew before going online');
+                  return;
+                }
+                if (discInfo && discInfo.daysLeft <= 7) {
+                  showToast(`⚠️ Disc expires in ${discInfo.daysLeft} day${discInfo.daysLeft === 1 ? '' : 's'} — renew soon`);
+                  // still allow going online for <= 7 days, block at 0
+                }
+              }
+              setOnline(!online);
+            }}
             activeOpacity={0.85}
           >
             <View style={s.onlineInner}>
@@ -1188,6 +1216,29 @@ export default function RiderScreen({ navigation }) {
               {online ? 'Taking orders · tap to go offline' : 'Tap to start accepting orders'}
             </Text>
           </TouchableOpacity>
+
+          {/* Disc status strip */}
+          {discInfo && (
+            <View style={[s.discStrip, {
+              backgroundColor: discInfo.daysLeft < 0 ? '#ef444415' : discInfo.daysLeft <= 30 ? '#f59e0b15' : '#22c55e10',
+              borderColor: discInfo.daysLeft < 0 ? '#ef444430' : discInfo.daysLeft <= 30 ? '#f59e0b30' : '#22c55e25',
+            }]}>
+              <Ionicons
+                name={discInfo.daysLeft < 0 ? 'close-circle' : discInfo.daysLeft <= 30 ? 'warning' : 'shield-checkmark'}
+                size={14}
+                color={discInfo.daysLeft < 0 ? '#ef4444' : discInfo.daysLeft <= 30 ? '#f59e0b' : '#22c55e'}
+              />
+              <Text style={[s.discStripTxt, {
+                color: discInfo.daysLeft < 0 ? '#ef4444' : discInfo.daysLeft <= 30 ? '#f59e0b' : '#22c55e',
+              }]}>
+                {discInfo.daysLeft < 0
+                  ? `Disc expired ${Math.abs(discInfo.daysLeft)} day${Math.abs(discInfo.daysLeft) === 1 ? '' : 's'} ago — go online blocked`
+                  : discInfo.daysLeft <= 30
+                  ? `Disc expires in ${discInfo.daysLeft} day${discInfo.daysLeft === 1 ? '' : 's'} — renew soon`
+                  : `Disc valid · expires ${discInfo.expiry.toLocaleDateString('en-ZA', { month: 'short', year: 'numeric' })}`}
+              </Text>
+            </View>
+          )}
 
           <View style={s.quickGrid}>
             {[
@@ -2166,6 +2217,13 @@ const s = StyleSheet.create({
   modalCancelTxt: { color: GREY, fontWeight: '700', fontSize: 15 },
   modalSubmitBtn: { flex: 2, height: 48, borderRadius: 12, backgroundColor: LIME, alignItems: 'center', justifyContent: 'center' },
   modalSubmitTxt: { color: BG, fontWeight: '800', fontSize: 15 },
+  // Disc status
+  discStrip: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 9,
+    marginTop: 10,
+  },
+  discStripTxt: { fontSize: 12, fontWeight: '600', flex: 1 },
   // Bank details
   bankSummaryCard: {
     flexDirection: 'row', alignItems: 'center',
