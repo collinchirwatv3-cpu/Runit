@@ -24,6 +24,7 @@ const SECTIONS = [
   { key: 'riders',         label: 'Riders',    icon: 'bicycle-outline' },
   { key: 'verifications',  label: 'Verify',    icon: 'shield-checkmark-outline' },
   { key: 'payouts',        label: 'Payouts',   icon: 'cash-outline' },
+  { key: 'feedback',       label: 'Feedback',  icon: 'chatbox-ellipses-outline' },
 ];
 
 // ─── Status helpers ────────────────────────────────────────────────────────
@@ -84,8 +85,15 @@ export default function AdminScreen({ navigation }) {
   const [verifications, setVerifications]   = useState([]);
   const [payouts, setPayouts]               = useState([]);
   const [orders, setOrders]                 = useState([]);
+  const [tickets, setTickets]               = useState([]);
   const [loading, setLoading]               = useState(true);
   const [refreshing, setRefreshing]         = useState(false);
+
+  // Feedback UI state
+  const [feedbackTab, setFeedbackTab]       = useState('open');
+  const [feedbackRole, setFeedbackRole]     = useState('all'); // 'all' | 'customer' | 'rider'
+  const [replyText, setReplyText]           = useState({});    // { [id]: string }
+  const [replying, setReplying]             = useState(null);
 
   // Verifications UI state
   const [verifTab, setVerifTab]             = useState('submitted');
@@ -103,14 +111,16 @@ export default function AdminScreen({ navigation }) {
   // ── Fetch ────────────────────────────────────────────────────────────────
   const fetchAll = async (quiet = false) => {
     if (!quiet) setLoading(true);
-    const [{ data: vData }, { data: pData }, { data: oData }] = await Promise.all([
+    const [{ data: vData }, { data: pData }, { data: oData }, { data: tData }] = await Promise.all([
       supabase.from('rider_verifications').select('*').order('submitted_at', { ascending: false }),
       supabase.from('payout_requests').select('*').order('created_at', { ascending: false }),
       supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(300),
+      supabase.from('support_tickets').select('*').order('created_at', { ascending: false }),
     ]);
     setVerifications(vData || []);
     setPayouts(pData || []);
     setOrders(oData || []);
+    setTickets(tData || []);
     setLoading(false);
     setRefreshing(false);
   };
@@ -121,6 +131,7 @@ export default function AdminScreen({ navigation }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_verifications' }, () => fetchAll(true))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'payout_requests' }, () => fetchAll(true))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchAll(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => fetchAll(true))
       .subscribe();
     return () => sub.current?.unsubscribe();
   }, []);
@@ -170,6 +181,22 @@ export default function AdminScreen({ navigation }) {
   const rejectPayout   = id => supabase.from('payout_requests').update({ status: 'rejected' }).eq('id', id);
   const cancelOrder    = id => supabase.from('orders').update({ status: 'cancelled' }).eq('id', id);
 
+  const replyTicket = async (id) => {
+    const reply = replyText[id]?.trim();
+    if (!reply) return;
+    setReplying(id);
+    await supabase.from('support_tickets').update({
+      admin_reply: reply,
+      status: 'resolved',
+      replied_at: new Date().toISOString(),
+    }).eq('id', id);
+    setReplyText(prev => ({ ...prev, [id]: '' }));
+    setReplying(null);
+  };
+
+  const setTicketStatus = (id, status) =>
+    supabase.from('support_tickets').update({ status }).eq('id', id);
+
   // ── Render helpers ────────────────────────────────────────────────────────
   const badge = (n, color = RED) => n > 0
     ? <View style={[s.dot, { backgroundColor: color }]}><Text style={s.dotTxt}>{n > 9 ? '9+' : n}</Text></View>
@@ -195,11 +222,13 @@ export default function AdminScreen({ navigation }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.navBar} contentContainerStyle={s.navBarContent}>
         {SECTIONS.map(sec => {
           const active = section === sec.key;
+          const openTickets = tickets.filter(t => t.status === 'open').length;
           const alertCount =
             sec.key === 'verifications' ? pendingVerif.length :
             sec.key === 'payouts'       ? pendingPay.length :
             sec.key === 'orders'        ? activeOrders.length :
-            sec.key === 'riders'        ? expiredDiscs.length : 0;
+            sec.key === 'riders'        ? expiredDiscs.length :
+            sec.key === 'feedback'      ? openTickets : 0;
           return (
             <TouchableOpacity key={sec.key} style={[s.navBtn, active && s.navBtnActive]} onPress={() => setSection(sec.key)}>
               <Ionicons name={sec.icon} size={18} color={active ? LIME : GREY} />
@@ -595,6 +624,131 @@ export default function AdminScreen({ navigation }) {
         </ScrollView>
       )}
 
+      {/* ════════ FEEDBACK & QUERIES ════════ */}
+      {section === 'feedback' && (
+        <>
+          <View style={s.tabBar}>
+            {[
+              { key: 'open',        label: 'Open' },
+              { key: 'in_progress', label: 'In Progress' },
+              { key: 'resolved',    label: 'Resolved' },
+              { key: 'all',         label: 'All' },
+            ].map(t => {
+              const count = tickets.filter(tk => t.key === 'all' || tk.status === t.key).length;
+              return (
+                <TouchableOpacity key={t.key} style={[s.tab, feedbackTab === t.key && s.tabActive]} onPress={() => setFeedbackTab(t.key)}>
+                  <Text style={[s.tabTxt, feedbackTab === t.key && s.tabTxtActive]}>
+                    {t.label}{count > 0 ? ` (${count})` : ''}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: MUTED }}>
+            {['all', 'customer', 'rider'].map(r => (
+              <TouchableOpacity key={r} style={[fbs.roleChip, feedbackRole === r && fbs.roleChipActive]} onPress={() => setFeedbackRole(r)}>
+                <Text style={[fbs.roleChipTxt, feedbackRole === r && fbs.roleChipTxtActive]}>
+                  {r === 'all' ? 'All' : r === 'customer' ? '🛒 Customers' : '🏍️ Riders'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <ScrollView
+            contentContainerStyle={s.page}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchAll(); }} tintColor={LIME} />}
+          >
+            {(() => {
+              const filtered = tickets.filter(t =>
+                (feedbackTab === 'all' || t.status === feedbackTab) &&
+                (feedbackRole === 'all' || t.role === feedbackRole)
+              );
+              if (filtered.length === 0) return <View style={s.center}><Text style={s.emptyTxt}>No tickets here</Text></View>;
+              return filtered.map(t => (
+                <View key={t.id} style={[s.card, { marginBottom: 12 }]}>
+                  <View style={s.cardHeader}>
+                    <View style={[s.avatarCircle, { backgroundColor: t.role === 'rider' ? LIME+'20' : BLUE+'20' }]}>
+                      <Text style={{ fontSize: 18 }}>{t.role === 'rider' ? '🏍️' : '🛒'}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.cardTitle}>{t.user_name || 'Unknown'}</Text>
+                      <Text style={s.cardSub}>{t.user_email || '—'}</Text>
+                      <Text style={s.dateText}>{fmt(t.created_at)}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: 5 }}>
+                      <View style={[s.badge, { backgroundColor: t.role === 'rider' ? LIME+'20' : BLUE+'20' }]}>
+                        <Text style={[s.badgeTxt, { color: t.role === 'rider' ? LIME : BLUE }]}>{t.role === 'rider' ? 'Rider' : 'Customer'}</Text>
+                      </View>
+                      <View style={[s.badge, { backgroundColor: t.status==='resolved' ? GREEN+'20' : t.status==='in_progress' ? ORANGE+'20' : RED+'20' }]}>
+                        <Text style={[s.badgeTxt, { color: t.status==='resolved' ? GREEN : t.status==='in_progress' ? ORANGE : RED }]}>
+                          {t.status === 'in_progress' ? 'In Progress' : t.status.charAt(0).toUpperCase() + t.status.slice(1)}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={fbs.typeRow}>
+                    <View style={fbs.typeChip}><Text style={fbs.typeChipTxt}>{t.type || 'General'}</Text></View>
+                    {t.subject && t.subject !== t.type && <Text style={fbs.subject} numberOfLines={1}>{t.subject}</Text>}
+                  </View>
+
+                  <View style={fbs.messageBox}>
+                    <Text style={fbs.messageTxt}>{t.message}</Text>
+                  </View>
+
+                  {t.admin_reply ? (
+                    <View style={fbs.replyBox}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <Ionicons name="shield-checkmark" size={12} color={LIME} />
+                        <Text style={fbs.replyLabel}>Admin reply · {fmtDate(t.replied_at)}</Text>
+                      </View>
+                      <Text style={fbs.replyTxt}>{t.admin_reply}</Text>
+                    </View>
+                  ) : null}
+
+                  {t.status !== 'resolved' && (
+                    <View style={{ gap: 8 }}>
+                      <TextInput
+                        style={fbs.replyInput}
+                        placeholder="Type a reply…"
+                        placeholderTextColor={GREY}
+                        multiline
+                        value={replyText[t.id] || ''}
+                        onChangeText={v => setReplyText(prev => ({ ...prev, [t.id]: v }))}
+                      />
+                      <View style={s.actionRow}>
+                        {t.status === 'open' && (
+                          <TouchableOpacity style={[s.rejectBtn, { borderColor: ORANGE+'50' }]} onPress={() => setTicketStatus(t.id, 'in_progress')}>
+                            <Text style={[s.rejectBtnTxt, { color: ORANGE }]}>In Progress</Text>
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                          style={[s.approveBtn, replying === t.id && { opacity: 0.6 }]}
+                          onPress={() => replyTicket(t.id)}
+                          disabled={replying === t.id}
+                        >
+                          {replying === t.id
+                            ? <ActivityIndicator color={BG} size="small" />
+                            : <Text style={s.approveBtnTxt}>Reply & Resolve</Text>
+                          }
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+
+                  {t.status === 'resolved' && (
+                    <TouchableOpacity style={[s.rejectBtn, { borderColor: MUTED }]} onPress={() => setTicketStatus(t.id, 'open')}>
+                      <Text style={[s.rejectBtnTxt, { color: GREY }]}>Reopen</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ));
+            })()}
+          </ScrollView>
+        </>
+      )}
+
     </View>
   );
 }
@@ -694,4 +848,21 @@ const s = StyleSheet.create({
   cancelTxt:       { color: GREY, fontSize: 13, fontWeight: '600' },
   confirmRejectBtn:{ flex: 2, height: 38, borderRadius: 10, backgroundColor: RED, alignItems: 'center', justifyContent: 'center' },
   confirmRejectTxt:{ color: '#fff', fontWeight: '700', fontSize: 13 },
+});
+
+const fbs = StyleSheet.create({
+  roleChip:       { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: MUTED },
+  roleChipActive: { backgroundColor: LIME+'18', borderColor: LIME },
+  roleChipTxt:    { fontSize: 12, fontWeight: '700', color: GREY },
+  roleChipTxtActive:{ color: LIME },
+  typeRow:        { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  typeChip:       { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: '#1e1e1e' },
+  typeChipTxt:    { fontSize: 11, fontWeight: '700', color: GREY, textTransform: 'uppercase', letterSpacing: 1 },
+  subject:        { fontSize: 13, fontWeight: '600', color: '#ccc', flex: 1 },
+  messageBox:     { backgroundColor: '#1a1a1a', borderRadius: 10, padding: 12 },
+  messageTxt:     { fontSize: 13, color: '#ddd', lineHeight: 20 },
+  replyBox:       { backgroundColor: LIME+'0a', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: LIME+'25' },
+  replyLabel:     { fontSize: 11, color: LIME, fontWeight: '700' },
+  replyTxt:       { fontSize: 13, color: '#ccc', lineHeight: 19 },
+  replyInput:     { backgroundColor: '#1a1a1a', borderRadius: 10, padding: 12, color: '#fff', fontSize: 13, minHeight: 70, borderWidth: 1, borderColor: MUTED, textAlignVertical: 'top' },
 });

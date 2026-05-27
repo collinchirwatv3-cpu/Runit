@@ -537,6 +537,107 @@ function PulseRing({ delay, size }) {
   );
 }
 
+// ─── Rider Query Form ─────────────────────────────────────────────────────
+const QUERY_TYPES = ['Payment Issue', 'Technical Issue', 'Order Issue', 'Account Issue', 'Other'];
+
+function RiderQueryForm({ userId, showToast }) {
+  const [qType, setQType]       = useState('Other');
+  const [subject, setSubject]   = useState('');
+  const [message, setMessage]   = useState('');
+  const [sending, setSending]   = useState(false);
+  const [sent, setSent]         = useState(false);
+
+  const submit = async () => {
+    if (!message.trim()) { showToast('Please describe your issue'); return; }
+    setSending(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('support_tickets').insert([{
+      user_id:    user?.id,
+      user_name:  user?.user_metadata?.name || user?.email?.split('@')[0] || 'Rider',
+      user_email: user?.email || '',
+      role:       'rider',
+      type:       qType,
+      subject:    subject.trim() || qType,
+      message:    message.trim(),
+      status:     'open',
+    }]);
+    setSending(false);
+    if (error) { showToast('Failed to send — try again'); return; }
+    setSent(true);
+    showToast('Query submitted ✓');
+    setSubject(''); setMessage(''); setQType('Other');
+  };
+
+  if (sent) {
+    return (
+      <View style={rq.sentCard}>
+        <Ionicons name="checkmark-circle" size={28} color={LIME} />
+        <View style={{ flex: 1 }}>
+          <Text style={rq.sentTitle}>Query Submitted</Text>
+          <Text style={rq.sentSub}>We'll reply to your registered email within 24 hours.</Text>
+        </View>
+        <TouchableOpacity onPress={() => setSent(false)}>
+          <Text style={{ color: LIME, fontSize: 13, fontWeight: '700' }}>New</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={rq.card}>
+      {/* Type chips */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }} contentContainerStyle={{ gap: 8, paddingVertical: 2 }}>
+        {QUERY_TYPES.map(t => (
+          <TouchableOpacity key={t} style={[rq.chip, qType === t && rq.chipActive]} onPress={() => setQType(t)}>
+            <Text style={[rq.chipTxt, qType === t && rq.chipTxtActive]}>{t}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      <TextInput
+        style={rq.input}
+        placeholder="Subject (optional)"
+        placeholderTextColor={GREY}
+        value={subject}
+        onChangeText={setSubject}
+      />
+      <TextInput
+        style={[rq.input, { minHeight: 90, textAlignVertical: 'top', marginTop: 10 }]}
+        placeholder="Describe your issue in detail…"
+        placeholderTextColor={GREY}
+        multiline
+        value={message}
+        onChangeText={setMessage}
+      />
+      <TouchableOpacity
+        style={[rq.submitBtn, sending && { opacity: 0.6 }]}
+        onPress={submit}
+        disabled={sending}
+        activeOpacity={0.85}
+      >
+        {sending
+          ? <ActivityIndicator color={BG} size="small" />
+          : <><Ionicons name="send-outline" size={16} color={BG} /><Text style={rq.submitTxt}>Send Query</Text></>
+        }
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const rq = StyleSheet.create({
+  card:       { backgroundColor: SURFACE, borderRadius: 16, padding: 16, gap: 0, marginBottom: 4 },
+  chip:       { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: MUTED },
+  chipActive: { backgroundColor: LIME + '20', borderColor: LIME },
+  chipTxt:    { fontSize: 12, fontWeight: '600', color: GREY },
+  chipTxtActive:{ color: LIME },
+  input:      { backgroundColor: '#1a1a1a', borderRadius: 10, padding: 12, color: '#fff', fontSize: 14, borderWidth: 1, borderColor: MUTED },
+  submitBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: LIME, borderRadius: 12, height: 46, marginTop: 12 },
+  submitTxt:  { color: BG, fontWeight: '800', fontSize: 14 },
+  sentCard:   { backgroundColor: SURFACE, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  sentTitle:  { fontSize: 14, fontWeight: '800', color: '#fff' },
+  sentSub:    { fontSize: 12, color: GREY, marginTop: 2 },
+});
+
 // SA banks with standard branch codes
 const SA_BANKS = [
   { name: 'ABSA',           branch: '632005' },
@@ -1593,6 +1694,10 @@ export default function RiderScreen({ navigation }) {
               <Text style={s.faqA}>{faq.a}</Text>
             </View>
           ))}
+
+          {/* Submit a Query */}
+          <Text style={[s.sectionLabel, { marginTop: 28 }]}>Submit a Query</Text>
+          <RiderQueryForm userId={userId} showToast={showToast} />
 
           <View style={s.supportFooter}>
             <Text style={s.supportVersion}>RunIt · Rider App · v1.0</Text>

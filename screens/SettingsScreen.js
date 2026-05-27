@@ -209,6 +209,106 @@ function PaymentMethodsSheet({ visible, onClose }) {
   );
 }
 
+// ─── Feedback sheet ────────────────────────────────────────────────────────
+
+const FEEDBACK_TYPES = ['General', 'Suggestion', 'Compliment', 'Bug Report', 'Complaint'];
+
+function FeedbackSheet({ visible, onClose }) {
+  const [type, setType]       = useState('General');
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent]       = useState(false);
+
+  const reset = () => { setType('General'); setSubject(''); setMessage(''); setSent(false); };
+
+  const submit = async () => {
+    if (!message.trim()) {
+      Alert.alert('Message required', 'Please describe your feedback.');
+      return;
+    }
+    setSending(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('support_tickets').insert([{
+      user_id:    user?.id,
+      user_name:  user?.user_metadata?.name || user?.email?.split('@')[0] || 'Customer',
+      user_email: user?.email || '',
+      role:       'customer',
+      type,
+      subject:    subject.trim() || type,
+      message:    message.trim(),
+      status:     'open',
+    }]);
+    setSending(false);
+    if (error) { Alert.alert('Error', error.message); return; }
+    setSent(true);
+  };
+
+  const handleClose = () => { reset(); onClose(); };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
+      <View style={s.sheetBg}>
+        <View style={s.sheet}>
+          <View style={s.sheetBar} />
+          {sent ? (
+            <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+              <Text style={{ fontSize: 52, marginBottom: 16 }}>✅</Text>
+              <Text style={s.sheetTitle}>Feedback Sent!</Text>
+              <Text style={[s.sheetSub, { textAlign: 'center', marginBottom: 28 }]}>
+                We'll review your feedback and get back to you if needed.
+              </Text>
+              <TouchableOpacity style={s.saveBtn} onPress={handleClose} activeOpacity={0.85}>
+                <Text style={s.saveBtnTxt}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              <Text style={s.sheetTitle}>Submit <Text style={{ color: LIME }}>Feedback</Text></Text>
+              <Text style={s.sheetSub}>We read every submission</Text>
+
+              <Text style={fb.label}>Category</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }} contentContainerStyle={{ gap: 8, paddingVertical: 2 }}>
+                {FEEDBACK_TYPES.map(t => (
+                  <TouchableOpacity key={t} style={[fb.chip, type === t && fb.chipActive]} onPress={() => setType(t)}>
+                    <Text style={[fb.chipTxt, type === t && fb.chipTxtActive]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={fb.label}>Subject <Text style={{ color: MUTED }}>(optional)</Text></Text>
+              <TextInput
+                style={[s.input, { marginBottom: 14 }]}
+                placeholder="Short summary"
+                placeholderTextColor={MUTED}
+                value={subject}
+                onChangeText={setSubject}
+              />
+
+              <Text style={fb.label}>Message</Text>
+              <TextInput
+                style={[s.input, { minHeight: 100, textAlignVertical: 'top', marginBottom: 20 }]}
+                placeholder="Tell us what's on your mind…"
+                placeholderTextColor={MUTED}
+                multiline
+                value={message}
+                onChangeText={setMessage}
+              />
+
+              <TouchableOpacity style={[s.saveBtn, sending && { opacity: 0.6 }]} onPress={submit} disabled={sending} activeOpacity={0.85}>
+                {sending ? <ActivityIndicator color={BG} /> : <Text style={s.saveBtnTxt}>Send Feedback</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleClose}>
+                <Text style={s.cancelTxt}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Settings screen ──────────────────────────────────────────────────────
 
 export default function SettingsScreen({ navigation }) {
@@ -219,6 +319,7 @@ export default function SettingsScreen({ navigation }) {
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
@@ -252,7 +353,13 @@ export default function SettingsScreen({ navigation }) {
         { label: 'Change Password', sub: 'Update your credentials', icon: 'lock-closed-outline',   onPress: () => setShowChangePass(true) },
         { label: 'Privacy Policy',  sub: 'How we use your data',    icon: 'shield-outline',         onPress: () => setShowPrivacy(true) },
         { label: 'Terms of Service',sub: 'RunIt user agreement',    icon: 'document-text-outline',  onPress: () => setShowTerms(true) },
-        { label: 'Contact Support', sub: 'hello@runit.co.za',       icon: 'headset-outline',        onPress: openSupport },
+      ],
+    },
+    {
+      title: 'Support',
+      rows: [
+        { label: 'Submit Feedback',  sub: 'Suggestions, complaints, compliments', icon: 'chatbox-ellipses-outline', onPress: () => setShowFeedback(true) },
+        { label: 'Contact Support',  sub: 'hello@runit.co.za',                    icon: 'headset-outline',           onPress: openSupport },
       ],
     },
     {
@@ -335,6 +442,7 @@ export default function SettingsScreen({ navigation }) {
       <InfoSheet visible={showPrivacy} onClose={() => setShowPrivacy(false)} title="Privacy Policy" body={PRIVACY_BODY} />
       <InfoSheet visible={showTerms}   onClose={() => setShowTerms(false)}   title="Terms of Service" body={TERMS_BODY} />
       <PaymentMethodsSheet visible={showPayment} onClose={() => setShowPayment(false)} />
+      <FeedbackSheet visible={showFeedback} onClose={() => setShowFeedback(false)} />
       <BottomBar active="settings" role="customer" onPress={(tabId) => {
         if (tabId === 'home') navigation.navigate('Customer');
         else if (tabId === 'orders') navigation.navigate('Orders');
@@ -393,6 +501,14 @@ const s = StyleSheet.create({
   cancelTxt: { color: GREY, fontSize: 14, textAlign: 'center', marginTop: 16 },
 
   infoBody: { fontSize: 14, color: '#aaa', lineHeight: 22, fontWeight: '500' },
+});
+
+const fb = StyleSheet.create({
+  label:      { fontSize: 10, fontWeight: '700', color: '#555', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8 },
+  chip:       { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: MUTED },
+  chipActive: { backgroundColor: LIME + '20', borderColor: LIME },
+  chipTxt:    { fontSize: 13, fontWeight: '600', color: GREY },
+  chipTxtActive:{ color: LIME },
 });
 
 const pm = StyleSheet.create({
