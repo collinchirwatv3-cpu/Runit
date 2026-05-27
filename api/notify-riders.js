@@ -25,7 +25,8 @@ module.exports = async (req, res) => {
 
   const { data: subs } = await supabase
     .from('push_subscriptions')
-    .select('id, subscription');
+    .select('id, subscription')
+    .eq('role', 'rider');
 
   if (!subs?.length) return res.status(200).json({ sent: 0 });
 

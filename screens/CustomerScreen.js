@@ -671,10 +671,46 @@ export default function CustomerScreen({ navigation }) {
   const riderLocSubRef = useRef(null);
   const pinMoveHandlerRef = useRef(null);
 
+  const registerPush = async (uid) => {
+    if (typeof window === 'undefined') return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const pkRes = await fetch('/api/vapid-pubkey');
+      const { publicKey } = await pkRes.json();
+      if (!publicKey) return;
+
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+
+      const padding = '='.repeat((4 - (publicKey.length % 4)) % 4);
+      const base64 = (publicKey + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = atob(base64);
+      const appKey = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; i++) appKey[i] = rawData.charCodeAt(i);
+
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: appKey,
+      });
+
+      await supabase.from('push_subscriptions').upsert(
+        { user_id: uid, role: 'customer', subscription: JSON.parse(JSON.stringify(sub)) },
+        { onConflict: 'user_id' },
+      );
+    } catch (e) {
+      console.warn('Customer push registration skipped:', e?.message);
+    }
+  };
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      setUserId(data?.user?.id || null);
+      const uid = data?.user?.id || null;
+      setUserId(uid);
       setUserName(data?.user?.user_metadata?.name || '');
+      if (uid) registerPush(uid);
     });
 
     // Detect return from PayFast payment redirect

@@ -764,8 +764,8 @@ export default function RiderScreen({ navigation }) {
 
       // Upsert subscription to Supabase
       await supabase.from('push_subscriptions').upsert(
-        { rider_id: uid, subscription: JSON.parse(JSON.stringify(sub)) },
-        { onConflict: 'rider_id' }
+        { user_id: uid, role: 'rider', subscription: JSON.parse(JSON.stringify(sub)) },
+        { onConflict: 'user_id' }
       );
     } catch (e) {
       console.warn('Push registration skipped:', e?.message);
@@ -998,6 +998,22 @@ export default function RiderScreen({ navigation }) {
     showToast('Trip cancelled — order returned to queue');
   };
 
+  // ── Push a status notification to the customer (fire-and-forget) ──────────
+  const notifyCustomer = async (customerUserId, title, body, tag) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      fetch('/api/notify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ userId: customerUserId, title, body, tag }),
+      }).catch(() => {});
+    } catch (_) {}
+  };
+
   const acceptJob = async (job) => {
     const { data: { user } } = await supabase.auth.getUser();
     const riderName = user?.user_metadata?.name || 'Your rider';
@@ -1012,6 +1028,15 @@ export default function RiderScreen({ navigation }) {
     setPinError(false);
     startLocationBroadcast(job);
     setView('active');
+    // Notify customer their rider is on the way
+    if (job.user_id) {
+      notifyCustomer(
+        job.user_id,
+        '🏍️ Rider on the way!',
+        `${riderName} has accepted your delivery and is heading to pick it up.`,
+        'runit-accepted',
+      );
+    }
   };
 
   const confirmDelivery = async () => {
@@ -1029,6 +1054,15 @@ export default function RiderScreen({ navigation }) {
     await supabase.from('orders').update({ status: 'delivered' }).eq('id', activeJob.id);
     stopLocationBroadcast();
     const done = { ...activeJob };
+    // Notify customer their package was delivered
+    if (done.user_id) {
+      notifyCustomer(
+        done.user_id,
+        '✅ Delivered!',
+        'Your package has been delivered. Thank you for using RunIt!',
+        'runit-delivered',
+      );
+    }
     setCompletedJob(done);
     _setActiveJob(null);
     setPinInput('');
