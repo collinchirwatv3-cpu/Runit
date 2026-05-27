@@ -53,5 +53,11 @@ module.exports = async (req, res) => {
     return res.status(500).send('DB error');
   }
 
+  // Fire push notifications to riders (best-effort, don't block the ITN response)
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
+  if (appUrl) {
+    fetch(`${appUrl}/api/notify-riders`, { method: 'POST' }).catch(() => {});
+  }
+
   res.status(200).send('OK');
 };

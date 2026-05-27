@@ -162,7 +162,7 @@ export default function AdminScreen({ navigation }) {
             </Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </View>}
 
       {section === 'verifications' && (loading ? (
         <View style={s.center}><ActivityIndicator color={LIME} /></View>

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
-  StyleSheet, Text, View, TouchableOpacity,
+  StyleSheet, Text, View, TouchableOpacity, Modal,
   Animated, TextInput, ScrollView, Alert, ActivityIndicator, Platform, Share,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -439,6 +439,201 @@ function PulseRing({ delay, size }) {
   );
 }
 
+// ─── Address search modal ─────────────────────────────────────────────────
+
+function AddressSearchModal({ visible, field, onSelect, onClose }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [recents, setRecents] = useState([]);
+  const inputRef = useRef(null);
+  const debRef = useRef(null);
+
+  useEffect(() => {
+    if (!visible) { setQuery(''); setResults([]); return; }
+    // Load recents from localStorage
+    if (Platform.OS === 'web') {
+      try { setRecents(JSON.parse(localStorage.getItem('runit_recent_addrs') || '[]')); }
+      catch (_) { setRecents([]); }
+    }
+    const t = setTimeout(() => inputRef.current?.focus(), 180);
+    return () => clearTimeout(t);
+  }, [visible]);
+
+  const handleChange = (text) => {
+    setQuery(text);
+    clearTimeout(debRef.current);
+    if (text.length < 2) { setResults([]); setSearching(false); return; }
+    setSearching(true);
+    debRef.current = setTimeout(async () => {
+      const r = await fetchSuggestions(text);
+      setResults(r);
+      setSearching(false);
+    }, 300);
+  };
+
+  const pick = (sug) => {
+    if (Platform.OS === 'web') {
+      try {
+        const prev = JSON.parse(localStorage.getItem('runit_recent_addrs') || '[]');
+        const updated = [sug, ...prev.filter(r => r.label !== sug.label)].slice(0, 6);
+        localStorage.setItem('runit_recent_addrs', JSON.stringify(updated));
+      } catch (_) {}
+    }
+    onSelect(sug);
+  };
+
+  const useCurrentLoc = () => {
+    if (!navigator?.geolocation) return;
+    setSearching(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const label = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+        setSearching(false);
+        pick({ label, lat: pos.coords.latitude, lon: pos.coords.longitude });
+      },
+      () => setSearching(false),
+      { timeout: 8000 }
+    );
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
+      <View style={am.container}>
+        {/* Header */}
+        <View style={am.header}>
+          <TouchableOpacity onPress={onClose} style={am.backBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="arrow-back" size={22} color="#fff" />
+          </TouchableOpacity>
+          <Text style={am.title}>{field === 'from' ? 'Pickup location' : 'Drop-off location'}</Text>
+        </View>
+
+        {/* Search bar */}
+        <View style={am.searchBar}>
+          <Ionicons name="search-outline" size={18} color={GREY} />
+          <TextInput
+            ref={inputRef}
+            style={am.searchInput}
+            placeholder="Search address or place…"
+            placeholderTextColor={GREY}
+            value={query}
+            onChangeText={handleChange}
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <TouchableOpacity onPress={() => { setQuery(''); setResults([]); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={18} color={MUTED} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Use current location (pickup only, web) */}
+        {field === 'from' && Platform.OS === 'web' && (
+          <TouchableOpacity style={am.locBtn} onPress={useCurrentLoc} activeOpacity={0.7}>
+            <View style={am.locIconWrap}>
+              <Ionicons name="locate-outline" size={18} color={LIME} />
+            </View>
+            <Text style={am.locTxt}>Use my current location</Text>
+            <Ionicons name="chevron-forward" size={16} color={MUTED} />
+          </TouchableOpacity>
+        )}
+
+        {/* Results / recents */}
+        {searching ? (
+          <View style={am.center}>
+            <ActivityIndicator color={LIME} size="large" />
+            <Text style={[am.hint, { marginTop: 12 }]}>Searching…</Text>
+          </View>
+        ) : results.length > 0 ? (
+          <ScrollView keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
+            {results.map((r, i) => (
+              <TouchableOpacity key={i} style={am.row} onPress={() => pick(r)} activeOpacity={0.7}>
+                <View style={am.rowIcon}><Ionicons name="location-outline" size={17} color={LIME} /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={am.rowPrimary} numberOfLines={1}>{r.label.split(',')[0]}</Text>
+                  <Text style={am.rowSecondary} numberOfLines={1}>{r.label.split(',').slice(1).join(',').trim()}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={15} color={MUTED} />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        ) : query.length >= 2 ? (
+          <View style={am.center}>
+            <Ionicons name="search-outline" size={40} color={MUTED} />
+            <Text style={am.hint}>No results found</Text>
+            <Text style={[am.hint, { fontSize: 12, marginTop: 4 }]}>Try a street name, suburb or landmark</Text>
+          </View>
+        ) : recents.length > 0 ? (
+          <ScrollView keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
+            <Text style={am.sectionLabel}>Recent</Text>
+            {recents.map((r, i) => (
+              <TouchableOpacity key={i} style={am.row} onPress={() => pick(r)} activeOpacity={0.7}>
+                <View style={am.rowIcon}><Ionicons name="time-outline" size={17} color={GREY} /></View>
+                <Text style={am.rowPrimary} numberOfLines={1}>{r.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={am.center}>
+            <Ionicons name="location-outline" size={44} color={MUTED} />
+            <Text style={am.hint}>
+              {field === 'from' ? 'Where should we collect from?' : 'Where are we delivering to?'}
+            </Text>
+          </View>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+const am = StyleSheet.create({
+  container: { flex: 1, backgroundColor: BG },
+  header: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingTop: 56, paddingHorizontal: 16, paddingBottom: 14,
+    borderBottomWidth: 1, borderBottomColor: '#1a1a1a',
+  },
+  backBtn: { padding: 4 },
+  title: { fontSize: 17, fontWeight: '800', color: '#fff', flex: 1 },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#181818', marginHorizontal: 16, marginTop: 14, marginBottom: 4,
+    borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14,
+    borderWidth: 1, borderColor: '#2e2e2e',
+  },
+  searchInput: { flex: 1, color: '#fff', fontSize: 16, fontWeight: '500', outlineStyle: 'none' },
+  locBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 16, paddingVertical: 16,
+    marginTop: 6,
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#1a1a1a',
+  },
+  locIconWrap: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: LIME + '15', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: LIME + '25',
+  },
+  locTxt: { flex: 1, color: '#e8e8e8', fontSize: 15, fontWeight: '600' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 60, gap: 10 },
+  hint: { color: GREY, fontSize: 14, textAlign: 'center', paddingHorizontal: 32, lineHeight: 20 },
+  sectionLabel: {
+    paddingHorizontal: 16, paddingTop: 22, paddingBottom: 10,
+    fontSize: 10, color: '#555', fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase',
+  },
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 16, paddingVertical: 16,
+    borderBottomWidth: 1, borderBottomColor: '#141414',
+  },
+  rowIcon: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    borderWidth: 1, borderColor: '#222',
+  },
+  rowPrimary: { fontSize: 15, color: '#f0f0f0', fontWeight: '600', marginBottom: 2 },
+  rowSecondary: { fontSize: 12, color: '#666', lineHeight: 16 },
+});
+
 // ─── Main screen ──────────────────────────────────────────────────────────
 
 export default function CustomerScreen({ navigation }) {
@@ -450,6 +645,8 @@ export default function CustomerScreen({ navigation }) {
   const [postTip, setPostTip] = useState(0);
   const [customPostTip, setCustomPostTip] = useState('');
   const [tipSubmitted, setTipSubmitted] = useState(false);
+  const [starRating, setStarRating] = useState(0);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [price, setPrice] = useState(null);
   const [dist, setDist] = useState(null);
   const [eta, setEta] = useState(null);
@@ -465,13 +662,10 @@ export default function CustomerScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [userId, setUserId] = useState(null);
-  const [focusedField, setFocusedField] = useState(null);
+  const [focusedField, setFocusedField] = useState(null); // for notes input
   const [fromConfirmed, setFromConfirmed] = useState(false);
   const [toConfirmed, setToConfirmed] = useState(false);
-  const [suggestions, setSuggestions] = useState([]);
-  const [suggestionField, setSuggestionField] = useState(null);
-  const debounceRef = useRef(null);
-  const suggestDebounceRef = useRef(null);
+  const [addressModal, setAddressModal] = useState(null); // null | 'from' | 'to'
   const orderSubRef = useRef(null);
   const riderLocSubRef = useRef(null);
   const pinMoveHandlerRef = useRef(null);
@@ -503,8 +697,6 @@ export default function CustomerScreen({ navigation }) {
     }
 
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
       orderSubRef.current?.unsubscribe();
       riderLocSubRef.current?.unsubscribe();
     };
@@ -540,29 +732,38 @@ export default function CustomerScreen({ navigation }) {
     setTimeout(() => setToastMsg(''), 3500);
   };
 
-  const scheduleCalc = (f, t, size = packageSize) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (f.length < 3 || t.length < 3) {
-      setDist(null); setPrice(null); setEta(null);
-      setFromCoords(null); setToCoords(null); setRouteCoords(null);
-      return;
-    }
-    setCalculating(true);
-    setDist(null); setPrice(null); setEta(null);
-    setFromCoords(null); setToCoords(null); setRouteCoords(null);
-    debounceRef.current = setTimeout(async () => {
-      const [a, b] = await Promise.all([geocode(f), geocode(t)]);
-      if (a && b) {
-        const route = await getRoute(a, b);
-        const p = Math.round((BASE + route.distKm * RATE) * (size === 'large' ? 1.4 : 1));
-        setFromCoords(a); setToCoords(b); setRouteCoords(route.coords);
-        setDist(route.distKm); setEta(route.durationMin); setPrice(p);
-      }
-      setCalculating(false);
-    }, 700);
+  const clearRoute = () => {
+    setDist(null); setPrice(null); setEta(null); setRouteCoords(null);
   };
 
-  // Direct route calc when coords are already known (from a suggestion tap)
+  const swapAddresses = async () => {
+    const [prevFrom, prevTo, prevFC, prevTC] = [from, to, fromCoords, toCoords];
+    setFrom(prevTo); setFromCoords(prevTC); setFromConfirmed(!!prevTC);
+    setTo(prevFrom); setToCoords(prevFC); setToConfirmed(!!prevFC);
+    clearRoute();
+    if (prevFC && prevTC) await calcRouteWithCoords(prevTC, prevFC, packageSize);
+  };
+
+  const confirmAddress = async (sug, field) => {
+    setAddressModal(null);
+    const coords = { lat: sug.lat, lon: sug.lon };
+    if (field === 'from') {
+      setFrom(sug.label); setFromCoords(coords); setFromConfirmed(true);
+      if (toCoords) {
+        await calcRouteWithCoords(coords, toCoords, packageSize);
+      } else {
+        setTimeout(() => setAddressModal('to'), 350);
+      }
+    } else {
+      setTo(sug.label); setToCoords(coords); setToConfirmed(true);
+      if (fromCoords) {
+        await calcRouteWithCoords(fromCoords, coords, packageSize);
+      } else {
+        setTimeout(() => setAddressModal('from'), 350);
+      }
+    }
+  };
+
   const calcRouteWithCoords = async (a, b, size) => {
     setCalculating(true);
     setDist(null); setPrice(null); setEta(null); setRouteCoords(null);
@@ -573,40 +774,20 @@ export default function CustomerScreen({ navigation }) {
     setCalculating(false);
   };
 
-  const scheduleSuggestions = (query, field) => {
-    if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
-    if (query.length < 2) { setSuggestions([]); setSuggestionField(null); return; }
-    suggestDebounceRef.current = setTimeout(async () => {
-      const results = await fetchSuggestions(query);
-      setSuggestions(results);
-      setSuggestionField(results.length ? field : null);
-    }, 350);
-  };
-
-  const selectSuggestion = async (sug, field) => {
-    setSuggestions([]);
-    setSuggestionField(null);
-    if (field === 'from') {
-      setFrom(sug.label);
-      setFromConfirmed(true);
-      const a = { lat: sug.lat, lon: sug.lon };
-      setFromCoords(a);
-      if (toCoords) await calcRouteWithCoords(a, toCoords, packageSize);
-    } else {
-      setTo(sug.label);
-      setToConfirmed(true);
-      const b = { lat: sug.lat, lon: sug.lon };
-      setToCoords(b);
-      if (fromCoords) await calcRouteWithCoords(fromCoords, b, packageSize);
-    }
-  };
-
   const submitTip = async () => {
     const amt = customPostTip ? parseInt(customPostTip, 10) || 0 : postTip;
     if (!activeOrderId || amt <= 0) { setTipSubmitted(true); return; }
     await supabase.from('orders').update({ tip: amt }).eq('id', activeOrderId);
     setTipSubmitted(true);
     showToast(`R${amt} tip sent — thank you! 🙏`);
+  };
+
+  const submitRating = async (stars) => {
+    setStarRating(stars);
+    setRatingSubmitted(true);
+    if (activeOrderId) {
+      await supabase.from('orders').update({ rating: stars }).eq('id', activeOrderId);
+    }
   };
 
   const startOrderTracking = (orderId, pin, initialStatus = 'pending') => {
@@ -620,12 +801,17 @@ export default function CustomerScreen({ navigation }) {
         filter: `id=eq.${orderId}`,
       }, (payload) => {
         const newStatus = payload.new.status;
+        const prevStatus = payload.old?.status;
         setOrderStatus(newStatus);
         if (newStatus === 'on_the_way') {
           const name = payload.new.rider_name || null;
           setRiderName(name);
           showToast(name ? `🏍️  ${name} is coming to collect your parcel!` : '🏍️  Rider is on the way!');
           subscribeRiderLocation(orderId);
+        }
+        if (newStatus === 'pending' && prevStatus === 'on_the_way') {
+          setRiderName(null);
+          showToast('Your rider cancelled — finding a new one...');
         }
         if (newStatus === 'delivered') showToast('Delivered! 🎉');
       })
@@ -679,8 +865,10 @@ export default function CustomerScreen({ navigation }) {
       } catch (_) {}
       // PayFast not configured — activate order directly (dev/staging fallback)
       await supabase.from('orders').update({ status: 'pending', payment_status: 'paid' }).eq('id', orderId);
+      fetch('/api/notify-riders', { method: 'POST' }).catch(() => {});
     } else {
       await supabase.from('orders').update({ status: 'pending', payment_status: 'paid' }).eq('id', orderId);
+      fetch('/api/notify-riders', { method: 'POST' }).catch(() => {});
     }
 
     startOrderTracking(orderId, pin);
@@ -723,6 +911,7 @@ export default function CustomerScreen({ navigation }) {
     setFromConfirmed(false); setToConfirmed(false);
     setPackageSize('small'); setNotes('');
     setPostTip(0); setCustomPostTip(''); setTipSubmitted(false);
+    setStarRating(0); setRatingSubmitted(false);
     setActiveOrderId(null); setOrderStatus('pending');
     setDeliveryPin(null); setRiderLocation(null); setRiderName(null);
   };
@@ -782,74 +971,75 @@ export default function CustomerScreen({ navigation }) {
 
           <Text style={s.pageTitle}>Where{'\n'}<Text style={s.pageTitleAccent}>to?</Text></Text>
 
-          {/* Addresses */}
+          {/* Address route card */}
           <View style={s.addrCard}>
+            {/* From row */}
             <View style={s.addrRow}>
-              <View style={[s.addrDot, { backgroundColor: LIME }]} />
-              <View style={s.addrCol}>
-                <View style={s.addrLblRow}>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 14 }}
+                onPress={() => setAddressModal('from')}
+                activeOpacity={0.7}
+              >
+                <View style={[s.addrDot, { backgroundColor: LIME, shadowColor: LIME, shadowOpacity: 0.8, shadowRadius: 6, elevation: 4 }]} />
+                <View style={s.addrCol}>
                   <Text style={s.addrLbl}>Collecting from</Text>
-                  {fromConfirmed && (
-                    <View style={s.confirmedBadge}>
-                      <Ionicons name="checkmark" size={10} color={LIME} />
-                      <Text style={s.confirmedTxt}>confirmed</Text>
-                    </View>
-                  )}
+                  <Text style={[s.addrDisplayTxt, !from && { color: GREY, fontWeight: '400' }]} numberOfLines={1}>
+                    {from || 'Tap to set pickup'}
+                  </Text>
                 </View>
-                <TextInput
-                  style={[s.addrInput, focusedField === 'from' && { color: '#fff' }]}
-                  placeholder="Area or street"
-                  placeholderTextColor={MUTED}
-                  value={from}
-                  onChangeText={v => { setFrom(v); setFromCoords(null); setFromConfirmed(false); scheduleCalc(v, to); scheduleSuggestions(v, 'from'); }}
-                  onFocus={() => setFocusedField('from')}
-                  onBlur={() => { setFocusedField(null); setTimeout(() => setSuggestions([]), 200); }}
-                />
-              </View>
+              </TouchableOpacity>
+              {from ? (
+                <TouchableOpacity onPress={() => { setFrom(''); setFromCoords(null); setFromConfirmed(false); clearRoute(); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close-circle" size={20} color={MUTED} />
+                </TouchableOpacity>
+              ) : (
+                <Ionicons name="chevron-forward" size={17} color={MUTED} />
+              )}
             </View>
-            <View style={s.addrSep}><View style={s.addrLine} /></View>
+
+            {/* Connector + swap */}
+            <View style={s.addrMid}>
+              <View style={{ width: 2, alignSelf: 'stretch', backgroundColor: '#404040', borderRadius: 1 }} />
+              <View style={{ flex: 1 }} />
+              {from && to && (
+                <TouchableOpacity style={s.swapBtn} onPress={swapAddresses} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="swap-vertical-outline" size={16} color={LIME} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* To row */}
             <View style={s.addrRow}>
-              <View style={[s.addrDot, { backgroundColor: '#ef4444' }]} />
-              <View style={s.addrCol}>
-                <View style={s.addrLblRow}>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 14 }}
+                onPress={() => setAddressModal('to')}
+                activeOpacity={0.7}
+              >
+                <View style={[s.addrDot, { backgroundColor: '#ef4444', shadowColor: '#ef4444', shadowOpacity: 0.8, shadowRadius: 6, elevation: 4 }]} />
+                <View style={s.addrCol}>
                   <Text style={s.addrLbl}>Delivering to</Text>
-                  {toConfirmed && (
-                    <View style={s.confirmedBadge}>
-                      <Ionicons name="checkmark" size={10} color={LIME} />
-                      <Text style={s.confirmedTxt}>confirmed</Text>
-                    </View>
-                  )}
+                  <Text style={[s.addrDisplayTxt, !to && { color: GREY, fontWeight: '400' }]} numberOfLines={1}>
+                    {to || 'Tap to set drop-off'}
+                  </Text>
                 </View>
-                <TextInput
-                  style={[s.addrInput, focusedField === 'to' && { color: '#fff' }]}
-                  placeholder="Area or street"
-                  placeholderTextColor={MUTED}
-                  value={to}
-                  onChangeText={v => { setTo(v); setToCoords(null); setToConfirmed(false); scheduleCalc(from, v); scheduleSuggestions(v, 'to'); }}
-                  onFocus={() => setFocusedField('to')}
-                  onBlur={() => { setFocusedField(null); setTimeout(() => setSuggestions([]), 200); }}
-                />
-              </View>
+              </TouchableOpacity>
+              {to ? (
+                <TouchableOpacity onPress={() => { setTo(''); setToCoords(null); setToConfirmed(false); clearRoute(); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close-circle" size={20} color={MUTED} />
+                </TouchableOpacity>
+              ) : (
+                <Ionicons name="chevron-forward" size={17} color={MUTED} />
+              )}
             </View>
           </View>
 
-          {/* Address autocomplete suggestions */}
-          {suggestions.length > 0 && suggestionField && (
-            <View style={s.suggestCard}>
-              {suggestions.map((sug, i) => (
-                <TouchableOpacity
-                  key={i}
-                  style={[s.suggestRow, i < suggestions.length - 1 && s.suggestDivider]}
-                  onPress={() => selectSuggestion(sug, suggestionField)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="location-outline" size={15} color={LIME} style={{ flexShrink: 0 }} />
-                  <Text style={s.suggestTxt} numberOfLines={2}>{sug.label}</Text>
-                  <Ionicons name="chevron-forward" size={14} color={MUTED} style={{ flexShrink: 0 }} />
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
+          {/* Address search modal */}
+          <AddressSearchModal
+            visible={addressModal !== null}
+            field={addressModal}
+            onSelect={(sug) => confirmAddress(sug, addressModal)}
+            onClose={() => setAddressModal(null)}
+          />
 
           {calculating && (
             <View style={s.calcRow}>
@@ -878,7 +1068,7 @@ export default function CustomerScreen({ navigation }) {
               <TouchableOpacity
                 key={sz.id}
                 style={[s.sizeCard, packageSize === sz.id && s.sizeCardOn]}
-                onPress={() => { setPackageSize(sz.id); scheduleCalc(from, to, sz.id); }}
+                onPress={() => { const s2 = sz.id; setPackageSize(s2); if (fromCoords && toCoords) calcRouteWithCoords(fromCoords, toCoords, s2); }}
                 activeOpacity={0.75}
               >
                 <Text style={s.sizeIcon}>{sz.icon}</Text>
@@ -1075,6 +1265,37 @@ export default function CustomerScreen({ navigation }) {
             </View>
           )}
 
+          {/* Star rating card */}
+          {delivered && (
+            ratingSubmitted ? (
+              <View style={s.tipCard}>
+                <View style={{ flexDirection: 'row', gap: 4, marginBottom: 6 }}>
+                  {[1,2,3,4,5].map(i => (
+                    <Ionicons key={i} name="star" size={22} color={i <= starRating ? '#f59e0b' : MUTED} />
+                  ))}
+                </View>
+                <Text style={[s.tipThanksTxt, { marginTop: 0 }]}>Thanks for rating your rider!</Text>
+              </View>
+            ) : (
+              <View style={s.tipCard}>
+                <Text style={s.tipCardLabel}>RATE YOUR RIDER</Text>
+                <Text style={s.tipCardHint}>How was your delivery experience?</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                  {[1,2,3,4,5].map(i => (
+                    <TouchableOpacity key={i} onPress={() => submitRating(i)} activeOpacity={0.7}>
+                      <Ionicons name={i <= starRating ? 'star' : 'star-outline'} size={36} color={i <= starRating ? '#f59e0b' : GREY} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {starRating > 0 && (
+                  <Text style={{ color: GREY, fontSize: 12, marginTop: 8 }}>
+                    {['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent!'][starRating]}
+                  </Text>
+                )}
+              </View>
+            )
+          )}
+
           {/* Post-delivery tip card */}
           {delivered && (
             tipSubmitted ? (
@@ -1167,19 +1388,33 @@ const s = StyleSheet.create({
   pageTitle: { fontSize: 52, fontWeight: '900', color: '#fff', letterSpacing: -1, lineHeight: 56, marginBottom: 28 },
   pageTitleAccent: { color: LIME },
 
-  addrCard: { backgroundColor: SURFACE, borderRadius: 22, overflow: 'hidden', marginBottom: 16 },
-  addrRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 18, gap: 16 },
-  addrDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  addrCard: {
+    backgroundColor: SURFACE, borderRadius: 22, overflow: 'hidden',
+    marginBottom: 16, borderWidth: 1, borderColor: '#282828',
+  },
+  addrRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 18, gap: 0 },
+  addrDot: { width: 13, height: 13, borderRadius: 6.5, flexShrink: 0 },
   addrCol: { flex: 1 },
-  addrLblRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  addrLbl: { fontSize: 10, fontWeight: '700', color: MUTED, textTransform: 'uppercase', letterSpacing: 1.5 },
-  confirmedBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: LIME + '15', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
-  confirmedTxt: { fontSize: 9, fontWeight: '700', color: LIME, letterSpacing: 0.5 },
-  addrInput: { fontSize: 17, fontWeight: '700', color: '#888', outlineStyle: 'none' },
-  addrSep: { paddingLeft: 44, paddingRight: 20 },
-  addrLine: { height: 1, backgroundColor: BORDER },
+  addrLbl: { fontSize: 10, fontWeight: '700', color: '#666', textTransform: 'uppercase', letterSpacing: 1.4, marginBottom: 5 },
+  addrDisplayTxt: { fontSize: 15, fontWeight: '600', color: '#fff' },
+  addrMid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 22,   // aligns line center with dot center (18 + 6.5 - 1 = 23.5 ≈ 22 + 1)
+    paddingRight: 14,
+    height: 26,
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#1e1e1e',
+    backgroundColor: '#0c0c0c',
+  },
+  addrMidLine: { width: 2, backgroundColor: '#404040', borderRadius: 1 }, // height via alignSelf:stretch in JSX
+  swapBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: LIME + '12',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: LIME + '45',
+  },
 
-  bookingMapCard: { height: 260, borderRadius: 20, overflow: 'hidden', marginBottom: 16, borderWidth: 1, borderColor: '#1a1a1a' },
+  bookingMapCard: { height: 260, borderRadius: 20, overflow: 'hidden', marginBottom: 16, borderWidth: 1, borderColor: '#282828' },
 
   calcRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
   calcTxt: { fontSize: 13, color: GREY, fontWeight: '600' },

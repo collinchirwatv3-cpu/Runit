@@ -53,3 +53,9 @@ js = js.replace(
 open(bundle_path, 'w').write(js)
 print('✓ JS bundle patched  (React Navigation overflow: hidden → visible)')
 PYEOF
+
+# ── 3. Copy service worker to dist root ───────────────────────────────────
+if [ -f sw.js ]; then
+  cp sw.js dist/sw.js
+  echo '✓ dist/sw.js copied'
+fi

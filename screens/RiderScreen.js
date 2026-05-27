@@ -486,11 +486,6 @@ function RiderTripMap({ initRider, fromCoords, toCoords, iframeRef: extIframeRef
 
 // ─── Mock jobs ────────────────────────────────────────────────────────────
 
-const MOCK_JOBS = [
-  { id: 'm1', pay: 78,  km: 5.8, time: 16, from: 'De Waterkant',  to: 'Green Point',    notes: null, tip: 0,  size: 'small', distToPickup: null, fromLat: null, fromLon: null },
-  { id: 'm2', pay: 52,  km: 3.2, time: 9,  from: 'Cape Town CBD', to: 'Tamboerskloof',  notes: 'Fragile — handle with care', tip: 10, size: 'small', distToPickup: null, fromLat: null, fromLon: null },
-  { id: 'm3', pay: 103, km: 8.1, time: 22, from: 'Observatory',   to: 'Camps Bay',      notes: null, tip: 20, size: 'large', distToPickup: null, fromLat: null, fromLon: null },
-];
 
 function formatOrder(o) {
   const km = o.dist_km
@@ -563,6 +558,8 @@ export default function RiderScreen({ navigation }) {
   const [showCashout, setShowCashout] = useState(false);
   const [cashoutForm, setCashoutForm] = useState({ amount: '', bank: '', account: '', branch: '' });
   const [cashoutLoading, setCashoutLoading] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
   const locationIntervalRef = useRef(null);
   const sub = useRef(null);
   const riderLocRef = useRef(null);      // current rider position (for proximity)
@@ -587,6 +584,46 @@ export default function RiderScreen({ navigation }) {
     });
   }, []);
 
+  const registerPush = async (uid) => {
+    if (Platform.OS !== 'web') return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      // Fetch VAPID public key from server
+      const pkRes = await fetch('/api/vapid-pubkey');
+      const { publicKey } = await pkRes.json();
+      if (!publicKey) return; // VAPID not configured yet
+
+      // Register service worker
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+
+      // Ask for permission (only prompts if not yet decided)
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+
+      // Convert VAPID public key to Uint8Array
+      const padding = '='.repeat((4 - (publicKey.length % 4)) % 4);
+      const base64 = (publicKey + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = atob(base64);
+      const appKey = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; i++) appKey[i] = rawData.charCodeAt(i);
+
+      // Subscribe (or reuse existing subscription)
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: appKey,
+      });
+
+      // Upsert subscription to Supabase
+      await supabase.from('push_subscriptions').upsert(
+        { rider_id: uid, subscription: JSON.parse(JSON.stringify(sub)) },
+        { onConflict: 'rider_id' }
+      );
+    } catch (e) {
+      console.warn('Push registration skipped:', e?.message);
+    }
+  };
+
   useEffect(() => {
     if (!online) {
       setJobs([]);
@@ -594,6 +631,7 @@ export default function RiderScreen({ navigation }) {
       stopPassiveLocation();
       return;
     }
+    if (userId) registerPush(userId);
     startPassiveLocation();
     // Small delay so passive location can get a first fix before fetching
     const t = setTimeout(fetchOrders, 1200);
@@ -727,7 +765,6 @@ export default function RiderScreen({ navigation }) {
   };
 
   const startLocationBroadcast = (job) => {
-    if (String(job.id).startsWith('m')) return;
     clearInterval(locationIntervalRef.current);
 
     const broadcast = async () => {
@@ -769,21 +806,13 @@ export default function RiderScreen({ navigation }) {
   };
 
   const handleBreakdown = async () => {
-    if (!activeJob || String(activeJob.id).startsWith('m')) {
-      // Mock job — just release locally
-      stopLocationBroadcast();
-      setActiveJob(null);
-      setPinInput('');
-      setPinError(false);
-      setView('home');
-      showToast('🔧 Breakdown reported — trip released');
-      return;
+    if (activeJob) {
+      await supabase.from('orders').update({
+        status: 'pending',
+        rider_id: null,
+        rider_name: null,
+      }).eq('id', activeJob.id);
     }
-    // Reset order to pending so any online rider can pick it up
-    await supabase.from('orders').update({
-      status: 'pending',
-      rider_id: null,
-    }).eq('id', activeJob.id);
     stopLocationBroadcast();
     setActiveJob(null);
     setPinInput('');
@@ -792,16 +821,33 @@ export default function RiderScreen({ navigation }) {
     showToast('🔧 Breakdown reported — finding another rider for your customer');
   };
 
-  const acceptJob = async (job) => {
-    if (!String(job.id).startsWith('m')) {
-      const { data: { user } } = await supabase.auth.getUser();
-      const riderName = user?.user_metadata?.name || 'Your rider';
-      const { error } = await supabase
-        .from('orders')
-        .update({ status: 'on_the_way', rider_id: userId, rider_name: riderName })
-        .eq('id', job.id);
-      if (error) { showToast('Failed to accept — try again'); return; }
+  const handleCancelTrip = async () => {
+    setCancelLoading(true);
+    if (activeJob) {
+      await supabase.from('orders').update({
+        status: 'pending',
+        rider_id: null,
+        rider_name: null,
+      }).eq('id', activeJob.id);
     }
+    stopLocationBroadcast();
+    setActiveJob(null);
+    setPinInput('');
+    setPinError(false);
+    setCancelLoading(false);
+    setShowCancelConfirm(false);
+    setView('home');
+    showToast('Trip cancelled — order returned to queue');
+  };
+
+  const acceptJob = async (job) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const riderName = user?.user_metadata?.name || 'Your rider';
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: 'on_the_way', rider_id: userId, rider_name: riderName })
+      .eq('id', job.id);
+    if (error) { showToast('Failed to accept — try again'); return; }
     setActiveJob(job);
     setJobs(p => p.filter(j => j.id !== job.id));
     setPinInput('');
@@ -812,19 +858,17 @@ export default function RiderScreen({ navigation }) {
 
   const confirmDelivery = async () => {
     if (!activeJob) return;
-    if (!String(activeJob.id).startsWith('m')) {
-      const { data } = await supabase
-        .from('orders')
-        .select('delivery_pin')
-        .eq('id', activeJob.id)
-        .single();
-      if (data?.delivery_pin && pinInput !== data.delivery_pin) {
-        setPinError(true);
-        showToast('Wrong PIN — ask the recipient again');
-        return;
-      }
-      await supabase.from('orders').update({ status: 'delivered' }).eq('id', activeJob.id);
+    const { data } = await supabase
+      .from('orders')
+      .select('delivery_pin')
+      .eq('id', activeJob.id)
+      .single();
+    if (data?.delivery_pin && pinInput !== data.delivery_pin) {
+      setPinError(true);
+      showToast('Wrong PIN — ask the recipient again');
+      return;
     }
+    await supabase.from('orders').update({ status: 'delivered' }).eq('id', activeJob.id);
     stopLocationBroadcast();
     const done = { ...activeJob };
     setCompletedJob(done);
@@ -976,7 +1020,7 @@ export default function RiderScreen({ navigation }) {
               <Text style={s.deliveredBtnTxt}>Confirm Delivery</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={s.backToHomeBtn} onPress={() => { stopLocationBroadcast(); setView('home'); }} activeOpacity={0.7}>
+            <TouchableOpacity style={s.backToHomeBtn} onPress={() => setShowCancelConfirm(true)} activeOpacity={0.7}>
               <Text style={s.backToHomeTxt}>Cancel trip</Text>
             </TouchableOpacity>
           </View>
@@ -1436,6 +1480,38 @@ export default function RiderScreen({ navigation }) {
 
       {/* ── Toast ── */}
       {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
+
+      {/* ── Cancel Trip Confirmation Modal ── */}
+      <Modal visible={showCancelConfirm} transparent animationType="fade" onRequestClose={() => setShowCancelConfirm(false)}>
+        <View style={s.modalOverlay}>
+          <View style={[s.modalSheet, { paddingBottom: 28 }]}>
+            <View style={s.modalHandle} />
+            <View style={{ alignItems: 'center', marginBottom: 12 }}>
+              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#ef444420', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                <Ionicons name="warning-outline" size={28} color="#ef4444" />
+              </View>
+              <Text style={[s.modalTitle, { marginBottom: 6 }]}>Cancel this trip?</Text>
+              <Text style={[s.modalSub, { textAlign: 'center', lineHeight: 20 }]}>
+                The order will go back to the queue and another rider can pick it up.
+              </Text>
+            </View>
+            <View style={s.modalActions}>
+              <TouchableOpacity style={s.modalCancelBtn} onPress={() => setShowCancelConfirm(false)} disabled={cancelLoading}>
+                <Text style={s.modalCancelTxt}>Keep trip</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.modalSubmitBtn, { backgroundColor: '#ef4444' }, cancelLoading && { opacity: 0.6 }]}
+                onPress={handleCancelTrip}
+                disabled={cancelLoading}
+              >
+                {cancelLoading
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={[s.modalSubmitTxt, { color: '#fff' }]}>Yes, cancel</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── Cashout Modal ── */}
       <Modal visible={showCashout} transparent animationType="slide" onRequestClose={() => setShowCashout(false)}>
