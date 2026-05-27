@@ -659,6 +659,7 @@ export default function RiderScreen({ navigation }) {
   const [earnings, setEarnings] = useState(0);
   const [trips, setTrips] = useState(0);
   const [jobs, setJobs] = useState([]);
+  const [userName, setUserName] = useState('');
   const [activeJob, setActiveJob] = useState(null);
   const [view, setView] = useState('home');
   const [userId, setUserId] = useState(null);
@@ -702,6 +703,7 @@ export default function RiderScreen({ navigation }) {
       setUserId(uid);
       if (uid) loadEarnings(uid);
       const meta = data?.user?.user_metadata || {};
+      setUserName(meta.name || '');
       const bd = {
         bank: meta.bank_name || '',
         accountHolder: meta.account_holder || '',
@@ -1093,7 +1095,7 @@ export default function RiderScreen({ navigation }) {
   return (
     <View style={s.container}>
       <StatusBar style={view === 'active' ? 'dark' : 'light'} />
-      {view !== 'active' && <TopBar />}
+      {view !== 'active' && <TopBar userName={userName} />}
 
       {/* ── Floating SOS button — always visible ── */}
       <SOSButton activeJob={activeJob} onBreakdown={handleBreakdown} />

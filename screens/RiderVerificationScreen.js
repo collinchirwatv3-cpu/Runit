@@ -192,7 +192,7 @@ export default function RiderVerificationScreen({ navigation }) {
   return (
     <ScrollView style={s.scroll} contentContainerStyle={s.content}>
       <View style={s.header}>
-        <Text style={s.logo}>🏍️</Text>
+        <Text style={s.wordmark}>RUN<Text style={s.wordmarkAccent}>IT</Text></Text>
         <Text style={s.h1}>Rider Verification</Text>
         <Text style={s.sub}>
           {status === 'rejected'
@@ -301,7 +301,8 @@ const s = StyleSheet.create({
     justifyContent: 'center', padding: 32,
   },
   header: { alignItems: 'center', marginBottom: 28, gap: 10 },
-  logo: { fontSize: 40 },
+  wordmark: { fontSize: 22, fontWeight: '900', color: '#fff', letterSpacing: 5, marginBottom: 4 },
+  wordmarkAccent: { color: LIME },
   h1: { fontSize: 24, fontWeight: '800', color: '#fff', textAlign: 'center' },
   sub: { fontSize: 14, color: GREY, textAlign: 'center', lineHeight: 20 },
   hint: { fontSize: 12, color: MUTED, textAlign: 'center', marginTop: 8 },

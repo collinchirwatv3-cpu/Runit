@@ -220,7 +220,7 @@ const s = StyleSheet.create({
   },
   roleCardOn: {
     borderColor: LIME,
-    backgroundColor: 'rgba(200,240,0,0.06)',
+    backgroundColor: 'rgba(200,240,0,0.10)',
   },
   roleEmoji: { fontSize: 24 },
   roleText: { flex: 1 },

@@ -51,13 +51,14 @@ export default function LoginScreen({ navigation }) {
         <Text style={s.backTxt}>← Back</Text>
       </TouchableOpacity>
 
-      <View style={s.header}>
-        <Text style={s.logo}>RUN<Text style={s.accent}>IT</Text></Text>
-        <Text style={s.headline}>Welcome{'\n'}Back.</Text>
-        <Text style={s.sub}>Sign in to continue</Text>
-      </View>
+      <View style={s.mid}>
+        <View style={s.header}>
+          <Text style={s.logo}>RUN<Text style={s.accent}>IT</Text></Text>
+          <Text style={s.headline}>Welcome{'\n'}Back.</Text>
+          <Text style={s.sub}>Sign in to continue</Text>
+        </View>
 
-      <View style={s.form}>
+        <View style={s.form}>
         <View style={s.fieldWrap}>
           <Text style={s.label}>Email</Text>
           <TextInput
@@ -96,20 +97,31 @@ export default function LoginScreen({ navigation }) {
           <Text style={s.btnTxt}>{loading ? 'Signing in…' : 'Sign In'}</Text>
         </TouchableOpacity>
       </View>
+      </View>
 
-      <TouchableOpacity onPress={() => navigation.navigate('Signup')} style={s.switchWrap}>
-        <Text style={s.switchTxt}>No account? </Text>
-        <Text style={s.switchLink}>Create one →</Text>
-      </TouchableOpacity>
+      <View style={s.footer}>
+        <View style={s.trustRow}>
+          {['🔒 Secure', '🏍️ Local riders', '⚡ Fast delivery'].map((item, i) => (
+            <View key={i} style={s.trustChip}>
+              <Text style={s.trustTxt}>{item}</Text>
+            </View>
+          ))}
+        </View>
+        <TouchableOpacity onPress={() => navigation.navigate('Signup')} style={s.switchWrap}>
+          <Text style={s.switchTxt}>No account? </Text>
+          <Text style={s.switchLink}>Create one →</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: BG },
-  content: { paddingHorizontal: 28, paddingTop: 60, paddingBottom: 60 },
-  backBtn: { marginBottom: 40 },
+  content: { flexGrow: 1, paddingHorizontal: 28, paddingTop: 60, paddingBottom: 60, justifyContent: 'space-between' },
+  backBtn: { marginBottom: 0 },
   backTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
+  mid: { flex: 1, justifyContent: 'center', paddingVertical: 20 },
   header: { marginBottom: 48 },
   logo: { fontSize: 18, fontWeight: '900', color: '#fff', letterSpacing: 4, marginBottom: 32 },
   accent: { color: LIME },
@@ -161,6 +173,17 @@ const s = StyleSheet.create({
   },
   btnLoading: { opacity: 0.6 },
   btnTxt: { fontSize: 17, fontWeight: '900', color: BG, letterSpacing: 0.3 },
+  footer: { gap: 20 },
+  trustRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
+  trustChip: {
+    backgroundColor: '#111',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#1e1e1e',
+  },
+  trustTxt: { fontSize: 11, color: '#555', fontWeight: '600' },
   switchWrap: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
   switchTxt: { fontSize: 15, color: GREY, fontWeight: '500' },
   switchLink: { fontSize: 15, color: LIME, fontWeight: '800' },

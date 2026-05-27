@@ -171,7 +171,7 @@ const s = StyleSheet.create({
   },
   tagline: {
     fontSize: 11,
-    color: '#333',
+    color: '#555',
     fontWeight: '700',
     letterSpacing: 3,
     textTransform: 'uppercase',

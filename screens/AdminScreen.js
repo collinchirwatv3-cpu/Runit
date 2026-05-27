@@ -762,12 +762,12 @@ const s = StyleSheet.create({
   logoutBtn:  { padding: 8 },
 
   // Nav
-  navBar:        { borderBottomWidth: 1, borderBottomColor: MUTED, backgroundColor: '#0d0d0d', flexGrow: 0 },
-  navBarContent: { paddingHorizontal: 8, paddingVertical: 4, flexDirection: 'row', gap: 4 },
-  navBtn:        { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, position: 'relative' },
-  navBtnActive:  { backgroundColor: LIME+'15' },
+  navBar:        { borderBottomWidth: 1, borderBottomColor: '#1a1a1a', backgroundColor: '#0d0d0d', flexGrow: 0 },
+  navBarContent: { paddingHorizontal: 8, paddingVertical: 0, flexDirection: 'row', gap: 0 },
+  navBtn:        { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 14, position: 'relative', borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  navBtnActive:  { borderBottomColor: LIME },
   navBtnTxt:     { fontSize: 13, fontWeight: '700', color: GREY },
-  navBtnTxtActive:{ color: LIME },
+  navBtnTxtActive:{ color: '#fff' },
   dot:           { position: 'absolute', top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   dotTxt:        { fontSize: 9, fontWeight: '900', color: '#fff' },
 

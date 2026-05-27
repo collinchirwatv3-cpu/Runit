@@ -662,6 +662,7 @@ export default function CustomerScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [userId, setUserId] = useState(null);
+  const [userName, setUserName] = useState('');
   const [focusedField, setFocusedField] = useState(null); // for notes input
   const [fromConfirmed, setFromConfirmed] = useState(false);
   const [toConfirmed, setToConfirmed] = useState(false);
@@ -671,7 +672,10 @@ export default function CustomerScreen({ navigation }) {
   const pinMoveHandlerRef = useRef(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id || null));
+    supabase.auth.getUser().then(({ data }) => {
+      setUserId(data?.user?.id || null);
+      setUserName(data?.user?.user_metadata?.name || '');
+    });
 
     // Detect return from PayFast payment redirect
     if (Platform.OS === 'web') {
@@ -948,7 +952,7 @@ export default function CustomerScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar />
+        <TopBar userName={userName} />
         <View style={s.homeContent}>
           <View>
             <Text style={s.homeTitle}>Send a</Text>
@@ -976,7 +980,7 @@ export default function CustomerScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar />
+        <TopBar userName={userName} />
         <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
           <TouchableOpacity onPress={() => setScreen('home')} style={s.backRow}>
@@ -1153,7 +1157,7 @@ export default function CustomerScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar />
+        <TopBar userName={userName} />
         <ScrollView style={s.scroll} contentContainerStyle={[s.scrollContent, { alignItems: 'center' }]} showsVerticalScrollIndicator={false}>
 
           <Text style={[s.trackStatus, { alignSelf: 'flex-start' }]}>{statusLabel}</Text>
