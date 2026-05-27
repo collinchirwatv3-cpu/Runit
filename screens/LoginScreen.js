@@ -11,6 +11,7 @@ const MUTED = '#444';
 const GREY = '#777';
 
 function roleToRoute(role) {
+  if (role === 'admin') return 'Admin';
   if (role === 'rider') return 'Rider';
   if (role === 'merchant') return 'Merchant';
   return 'Customer';
