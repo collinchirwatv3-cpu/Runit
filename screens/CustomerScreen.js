@@ -146,27 +146,85 @@ function buildBookingMapHtml(initFrom, initTo) {
   const c = initFrom || initTo || { lat: -33.9249, lon: 18.4241 };
   return `<!DOCTYPE html><html><head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;background:#080808}
+html,body{width:100%;height:100%;background:#0a0a0a;overflow:hidden}
 #map{width:100%;height:100%}
 .leaflet-control-attribution,.leaflet-control-zoom{display:none}
-.tip{background:rgba(8,8,8,0.92);border:1px solid #1e1e1e;color:#fff;font-size:11px;font-weight:700;font-family:-apple-system,sans-serif;padding:4px 10px;border-radius:20px;white-space:nowrap;box-shadow:none}
-.tip::before{display:none}
-#hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(8,8,8,0.88);border:1px solid #2a2a2a;color:#888;font-size:11px;font-weight:600;font-family:-apple-system,sans-serif;padding:5px 14px;border-radius:20px;white-space:nowrap;z-index:1000;pointer-events:none;transition:opacity 0.3s}
+
+/* Top & bottom gradient overlays so map blends into app */
+#grad-top{position:absolute;top:0;left:0;right:0;height:32px;background:linear-gradient(to bottom,rgba(10,10,10,0.9),transparent);z-index:500;pointer-events:none}
+#grad-bot{position:absolute;bottom:0;left:0;right:0;height:48px;background:linear-gradient(to top,rgba(10,10,10,0.95),transparent);z-index:500;pointer-events:none}
+
+/* Hint pill */
+#hint{
+  position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
+  background:rgba(255,255,255,0.12);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,0.18);
+  color:#fff;font-size:12px;font-weight:700;
+  font-family:-apple-system,sans-serif;
+  padding:7px 18px;border-radius:24px;
+  white-space:nowrap;z-index:1000;pointer-events:none;
+  transition:opacity 0.4s;letter-spacing:0.3px;
+}
+
+/* Tooltip label */
+.tip{
+  background:rgba(10,10,10,0.95)!important;
+  border:1px solid rgba(255,255,255,0.1)!important;
+  color:#fff!important;font-size:11px!important;font-weight:700!important;
+  font-family:-apple-system,sans-serif!important;
+  padding:4px 10px!important;border-radius:12px!important;
+  box-shadow:0 2px 12px rgba(0,0,0,0.6)!important;
+}
+.tip::before{display:none!important}
+.leaflet-tooltip{background:transparent!important;border:none!important;box-shadow:none!important}
+
+/* Pin animations */
+@keyframes pinDrop{0%{transform:translateY(-30px) scale(0.6);opacity:0}70%{transform:translateY(4px) scale(1.05)}100%{transform:translateY(0) scale(1);opacity:1}}
+@keyframes ripple{0%{transform:scale(1);opacity:0.6}100%{transform:scale(3);opacity:0}}
+.pin-wrap{animation:pinDrop 0.4s cubic-bezier(.4,1.6,.6,1) forwards}
+.ripple{
+  position:absolute;width:20px;height:20px;border-radius:50%;
+  top:50%;left:50%;transform:translate(-50%,-50%);
+  animation:ripple 1.6s ease-out infinite;
+  pointer-events:none;
+}
 </style>
 </head><body>
 <div id="map"></div>
+<div id="grad-top"></div>
+<div id="grad-bot"></div>
 <div id="hint">Tap map to set pickup point</div>
 <script>
 var map=L.map('map',{zoomControl:false,attributionControl:false});
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:18}).addTo(map);
-map.setView([${c.lat},${c.lon}],14);
-var iconA=L.divIcon({html:'<div style="width:20px;height:20px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 0 16px 4px rgba(200,240,0,0.7);cursor:grab"></div>',iconSize:[20,20],iconAnchor:[10,10],className:''});
-var iconB=L.divIcon({html:'<div style="width:20px;height:20px;border-radius:50%;background:#ef4444;border:3px solid #080808;box-shadow:0 0 16px 4px rgba(239,68,68,0.6);cursor:grab"></div>',iconSize:[20,20],iconAnchor:[10,10],className:''});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:19,subdomains:'abcd'}).addTo(map);
+map.setView([${c.lat},${c.lon}],15);
+
+function makePinA(){
+  return L.divIcon({className:'',iconSize:[28,36],iconAnchor:[14,34],html:
+    '<div class="pin-wrap" style="position:relative;width:28px;height:36px">'+
+    '<div class="ripple" style="background:rgba(200,240,0,0.4)"></div>'+
+    '<svg viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg" style="width:28px;height:36px;filter:drop-shadow(0 4px 12px rgba(200,240,0,0.5))">'+
+    '<path d="M14 0C6.27 0 0 6.27 0 14c0 9.33 14 22 14 22s14-12.67 14-22C28 6.27 21.73 0 14 0z" fill="#c8f000"/>'+
+    '<circle cx="14" cy="14" r="5" fill="#080808"/>'+
+    '</svg></div>'
+  });
+}
+function makePinB(){
+  return L.divIcon({className:'',iconSize:[28,36],iconAnchor:[14,34],html:
+    '<div class="pin-wrap" style="position:relative;width:28px;height:36px">'+
+    '<svg viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg" style="width:28px;height:36px;filter:drop-shadow(0 4px 12px rgba(239,68,68,0.5))">'+
+    '<path d="M14 0C6.27 0 0 6.27 0 14c0 9.33 14 22 14 22s14-12.67 14-22C28 6.27 21.73 0 14 0z" fill="#ef4444"/>'+
+    '<circle cx="14" cy="14" r="5" fill="#fff"/>'+
+    '</svg></div>'
+  });
+}
+
 var markerA=null,markerB=null,routeLayers=[];
 function send(pin,ll){
   var m={type:'pinMoved',pin:pin,lat:ll.lat,lon:ll.lng};
@@ -183,44 +241,53 @@ function drawRoute(){
     .then(function(d){
       if(!d.routes||!d.routes[0])return;
       var coords=d.routes[0].geometry.coordinates.map(function(c){return[c[1],c[0]];});
-      routeLayers.push(L.polyline(coords,{color:'#c8f000',weight:8,opacity:0.12}).addTo(map));
-      routeLayers.push(L.polyline(coords,{color:'#c8f000',weight:3,opacity:0.85}).addTo(map));
-      map.fitBounds(L.latLngBounds([a,b]).pad(0.3));
+      routeLayers.push(L.polyline(coords,{color:'#c8f000',weight:14,opacity:0.08}).addTo(map));
+      routeLayers.push(L.polyline(coords,{color:'#000',weight:7,opacity:0.5}).addTo(map));
+      routeLayers.push(L.polyline(coords,{color:'#c8f000',weight:4,opacity:1}).addTo(map));
+      map.fitBounds(L.latLngBounds([a,b]).pad(0.28),{maxZoom:16});
     }).catch(function(){});
 }
 function hint(){
   var h=document.getElementById('hint');if(!h)return;
   if(!markerA){h.innerText='Tap map to set pickup point';h.style.opacity='1';}
-  else if(!markerB){h.innerText='Now tap to set drop-off';h.style.opacity='1';}
+  else if(!markerB){h.innerText='Now tap to set drop-off point';h.style.opacity='1';}
   else{h.style.opacity='0';}
 }
 function placeA(ll,fromReact){
-  if(markerA){markerA.setLatLng(ll);}
-  else{markerA=L.marker(ll,{icon:iconA,draggable:true}).bindTooltip('Pickup',{permanent:true,direction:'top',className:'tip',offset:[0,-12]}).addTo(map);
-    markerA.on('dragend',function(){send('from',markerA.getLatLng());drawRoute();});}
+  if(markerA){markerA.setLatLng(ll);markerA.setIcon(makePinA());}
+  else{
+    markerA=L.marker(ll,{icon:makePinA(),draggable:true})
+      .bindTooltip('Pickup',{permanent:true,direction:'top',className:'tip',offset:[0,-4]}).addTo(map);
+    markerA.on('drag',function(){send('from',markerA.getLatLng());});
+    markerA.on('dragend',function(){send('from',markerA.getLatLng());drawRoute();});
+  }
   if(!fromReact)send('from',ll);
   if(markerB)drawRoute();
   hint();
 }
 function placeB(ll,fromReact){
-  if(markerB){markerB.setLatLng(ll);}
-  else{markerB=L.marker(ll,{icon:iconB,draggable:true}).bindTooltip('Drop-off',{permanent:true,direction:'bottom',className:'tip',offset:[0,10]}).addTo(map);
-    markerB.on('dragend',function(){send('to',markerB.getLatLng());drawRoute();});}
+  if(markerB){markerB.setLatLng(ll);markerB.setIcon(makePinB());}
+  else{
+    markerB=L.marker(ll,{icon:makePinB(),draggable:true})
+      .bindTooltip('Drop-off',{permanent:true,direction:'top',className:'tip',offset:[0,-4]}).addTo(map);
+    markerB.on('drag',function(){send('to',markerB.getLatLng());});
+    markerB.on('dragend',function(){send('to',markerB.getLatLng());drawRoute();});
+  }
   if(!fromReact)send('to',ll);
   if(markerA)drawRoute();
   hint();
 }
 map.on('click',function(e){
   if(!markerA)placeA(e.latlng,false);
-  else if(!markerB){placeB(e.latlng,false);map.fitBounds(L.latLngBounds([markerA.getLatLng(),e.latlng]).pad(0.3));}
+  else if(!markerB){placeB(e.latlng,false);}
 });
 window.addEventListener('message',function(e){
   if(!e.data||e.data.type!=='setPin')return;
   var ll=L.latLng(e.data.lat,e.data.lon);
   if(e.data.pin==='from')placeA(ll,true);
   else placeB(ll,true);
-  if(markerA&&markerB)map.fitBounds(L.latLngBounds([markerA.getLatLng(),markerB.getLatLng()]).pad(0.3));
-  else map.setView(ll,15);
+  if(markerA&&markerB)map.fitBounds(L.latLngBounds([markerA.getLatLng(),markerB.getLatLng()]).pad(0.28),{maxZoom:16});
+  else map.setView(ll,16);
 });
 ${initFrom ? `placeA(L.latLng(${initFrom.lat},${initFrom.lon}),true);` : ''}
 ${initTo ? `placeB(L.latLng(${initTo.lat},${initTo.lon}),true);` : ''}
