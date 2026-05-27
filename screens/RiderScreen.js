@@ -1985,7 +1985,7 @@ const jb = StyleSheet.create({
 
 const sos = StyleSheet.create({
   btn: {
-    position: 'absolute', top: 54, right: 20, zIndex: 200,
+    position: 'absolute', top: 96, right: 20, zIndex: 200,
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: '#ef4444', borderRadius: 20,
     paddingHorizontal: 13, paddingVertical: 7,

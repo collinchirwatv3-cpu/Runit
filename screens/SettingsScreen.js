@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet, Text, View, TouchableOpacity, ScrollView,
   Switch, Modal, TextInput, Alert, Linking, ActivityIndicator, Image,
@@ -309,6 +309,161 @@ function FeedbackSheet({ visible, onClose }) {
   );
 }
 
+// ─── Highlight matched text ───────────────────────────────────────────────
+
+function HighlightedText({ text, query, style }) {
+  if (!query) return <Text style={style}>{text}</Text>;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
+  return (
+    <Text style={style}>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase()
+          ? <Text key={i} style={fq.highlight}>{part}</Text>
+          : <Text key={i}>{part}</Text>
+      )}
+    </Text>
+  );
+}
+
+// ─── FAQ accordion ────────────────────────────────────────────────────────
+
+function FaqSection({ role }) {
+  const [faqs, setFaqs]     = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [openId, setOpenId]  = useState(null);
+  const [search, setSearch]  = useState('');
+
+  useEffect(() => {
+    if (!role) return;
+    supabase
+      .from('faqs')
+      .select('id, question, answer, display_order')
+      .eq('role', role)
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+      .then(({ data }) => { setFaqs(data || []); setLoading(false); });
+  }, [role]);
+
+  if (loading) return (
+    <View style={fq.loadWrap}><ActivityIndicator color={LIME} size="small" /></View>
+  );
+
+  const query    = search.trim().toLowerCase();
+  const filtered = query
+    ? faqs.filter(f =>
+        f.question.toLowerCase().includes(query) ||
+        f.answer.toLowerCase().includes(query)
+      )
+    : faqs;
+
+  return (
+    <View>
+      {/* ── Search bar ── */}
+      <View style={[fq.searchRow, query && fq.searchRowActive]}>
+        <Ionicons name="search-outline" size={15} color={query ? LIME : GREY} />
+        <TextInput
+          style={fq.searchInput}
+          placeholder="Search FAQs…"
+          placeholderTextColor={MUTED}
+          value={search}
+          onChangeText={v => { setSearch(v); setOpenId(null); }}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+        />
+        {search.length > 0 && (
+          <TouchableOpacity
+            onPress={() => { setSearch(''); setOpenId(null); }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="close-circle" size={16} color={GREY} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* ── Result count hint ── */}
+      {query.length > 0 && (
+        <Text style={fq.resultCount}>
+          {filtered.length === 0
+            ? 'No matches'
+            : `${filtered.length} match${filtered.length !== 1 ? 'es' : ''}`}
+        </Text>
+      )}
+
+      {/* ── List ── */}
+      {filtered.length === 0 ? (
+        <View style={fq.emptyWrap}>
+          <Text style={fq.emptyTxt}>
+            {query ? `Nothing found for "${search}"` : 'No FAQs available yet'}
+          </Text>
+        </View>
+      ) : (
+        <View style={fq.container}>
+          {filtered.map((item, i) => {
+            // In search mode all matched answers auto-open
+            const isOpen = query ? true : openId === item.id;
+            return (
+              <View key={item.id}>
+                <TouchableOpacity
+                  style={fq.qRow}
+                  onPress={() => { if (!query) setOpenId(isOpen ? null : item.id); }}
+                  activeOpacity={query ? 1 : 0.7}
+                >
+                  <HighlightedText
+                    text={item.question}
+                    query={query}
+                    style={[fq.question, isOpen && fq.questionOpen]}
+                  />
+                  {!query && (
+                    <Ionicons
+                      name={isOpen ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color={isOpen ? LIME : GREY}
+                    />
+                  )}
+                </TouchableOpacity>
+                {isOpen && (
+                  <View style={fq.answerWrap}>
+                    <HighlightedText
+                      text={item.answer}
+                      query={query}
+                      style={fq.answer}
+                    />
+                  </View>
+                )}
+                {i < filtered.length - 1 && <View style={fq.divider} />}
+              </View>
+            );
+          })}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const fq = StyleSheet.create({
+  loadWrap:        { padding: 20, alignItems: 'center' },
+  emptyWrap:       { padding: 16 },
+  emptyTxt:        { color: GREY, fontSize: 13, textAlign: 'center' },
+  container:       { backgroundColor: SURFACE, borderRadius: 20, overflow: 'hidden' },
+  qRow:            { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12 },
+  question:        { flex: 1, fontSize: 14, fontWeight: '700', color: '#ccc', lineHeight: 20 },
+  questionOpen:    { color: '#fff' },
+  answerWrap:      { paddingHorizontal: 16, paddingBottom: 16, paddingTop: 0 },
+  answer:          { fontSize: 13, color: GREY, lineHeight: 21 },
+  divider:         { height: 1, backgroundColor: '#1a1a1a', marginLeft: 16 },
+  highlight:       { color: LIME, fontWeight: '800' },
+  searchRow:       {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: SURFACE, borderRadius: 14, paddingHorizontal: 14,
+    marginBottom: 10, borderWidth: 1.5, borderColor: '#1e1e1e',
+  },
+  searchRowActive: { borderColor: LIME + '55' },
+  searchInput:     { flex: 1, paddingVertical: 13, color: '#fff', fontSize: 14 },
+  resultCount:     { fontSize: 11, color: GREY, marginBottom: 8, marginLeft: 2, fontWeight: '700', letterSpacing: 0.5 },
+});
+
 // ─── Settings screen ──────────────────────────────────────────────────────
 
 export default function SettingsScreen({ navigation }) {
@@ -320,6 +475,14 @@ export default function SettingsScreen({ navigation }) {
   const [showTerms, setShowTerms] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [userRole, setUserRole]         = useState('customer');
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      const role = data?.user?.user_metadata?.role;
+      if (role === 'rider') setUserRole('rider');
+    });
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
@@ -431,6 +594,11 @@ export default function SettingsScreen({ navigation }) {
           </View>
         ))}
 
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>Help & FAQs</Text>
+          <FaqSection role={userRole} />
+        </View>
+
         <TouchableOpacity style={s.signOutBtn} onPress={handleSignOut} activeOpacity={0.8}>
           <Ionicons name="power-outline" size={18} color="#ef4444" />
           <Text style={s.signOutTxt}>Sign Out</Text>
@@ -443,8 +611,8 @@ export default function SettingsScreen({ navigation }) {
       <InfoSheet visible={showTerms}   onClose={() => setShowTerms(false)}   title="Terms of Service" body={TERMS_BODY} />
       <PaymentMethodsSheet visible={showPayment} onClose={() => setShowPayment(false)} />
       <FeedbackSheet visible={showFeedback} onClose={() => setShowFeedback(false)} />
-      <BottomBar active="settings" role="customer" onPress={(tabId) => {
-        if (tabId === 'home') navigation.navigate('Customer');
+      <BottomBar active="settings" role={userRole} onPress={(tabId) => {
+        if (tabId === 'home') navigation.navigate(userRole === 'rider' ? 'Rider' : 'Customer');
         else if (tabId === 'orders') navigation.navigate('Orders');
         else if (tabId === 'profile') navigation.navigate('Profile');
       }} />

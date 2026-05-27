@@ -25,6 +25,7 @@ const SECTIONS = [
   { key: 'verifications',  label: 'Verify',    icon: 'shield-checkmark-outline' },
   { key: 'payouts',        label: 'Payouts',   icon: 'cash-outline' },
   { key: 'feedback',       label: 'Feedback',  icon: 'chatbox-ellipses-outline' },
+  { key: 'faqs',           label: 'FAQs',      icon: 'help-circle-outline' },
 ];
 
 // ─── Status helpers ────────────────────────────────────────────────────────
@@ -125,6 +126,16 @@ export default function AdminScreen({ navigation }) {
   const [inviteMsg, setInviteMsg]           = useState('');
   const [revoking, setRevoking]             = useState(null); // userId being revoked
 
+  // FAQ management
+  const [faqs, setFaqs]                     = useState([]);
+  const [faqsLoading, setFaqsLoading]       = useState(false);
+  const [faqTab, setFaqTab]                 = useState('customer');
+  const [faqForm, setFaqForm]               = useState({ question: '', answer: '', display_order: 0 });
+  const [editingFaqId, setEditingFaqId]     = useState(null); // null = new, string = edit existing
+  const [showFaqForm, setShowFaqForm]       = useState(false);
+  const [faqSaving, setFaqSaving]           = useState(false);
+  const [faqSearch, setFaqSearch]           = useState('');
+
   const sub = useRef(null);
 
   // ── Fetch ────────────────────────────────────────────────────────────────
@@ -162,6 +173,20 @@ export default function AdminScreen({ navigation }) {
     setActivityLog(data || []);
     setLogsLoading(false);
   };
+
+  const fetchFaqs = async () => {
+    setFaqsLoading(true);
+    const { data } = await supabase
+      .from('faqs')
+      .select('*')
+      .order('display_order', { ascending: true });
+    setFaqs(data || []);
+    setFaqsLoading(false);
+  };
+
+  useEffect(() => {
+    if (section === 'faqs') fetchFaqs();
+  }, [section]);
 
   useEffect(() => {
     // Load current user + check super admin status + load name
@@ -357,6 +382,45 @@ export default function AdminScreen({ navigation }) {
     const t = tickets.find(r => r.id === id);
     await supabase.from('support_tickets').update({ status }).eq('id', id);
     logActivity('ticket_status', id, `Set "${t?.subject || 'ticket'}" → ${status}`, { status });
+  };
+
+  const saveFaq = async () => {
+    if (!faqForm.question.trim() || !faqForm.answer.trim()) return;
+    setFaqSaving(true);
+    if (editingFaqId) {
+      await supabase.from('faqs').update({
+        question:      faqForm.question.trim(),
+        answer:        faqForm.answer.trim(),
+        display_order: Number(faqForm.display_order) || 0,
+      }).eq('id', editingFaqId);
+      logActivity('faq_edit', editingFaqId, `Edited FAQ: "${faqForm.question.trim().slice(0, 40)}"`, { role: faqTab });
+    } else {
+      await supabase.from('faqs').insert({
+        role:          faqTab,
+        question:      faqForm.question.trim(),
+        answer:        faqForm.answer.trim(),
+        display_order: Number(faqForm.display_order) || 0,
+        is_active:     true,
+      });
+      logActivity('faq_add', 'new', `Added FAQ for ${faqTab}s: "${faqForm.question.trim().slice(0, 40)}"`, { role: faqTab });
+    }
+    setFaqForm({ question: '', answer: '', display_order: 0 });
+    setEditingFaqId(null);
+    setShowFaqForm(false);
+    setFaqSaving(false);
+    fetchFaqs();
+  };
+
+  const deleteFaq = async (id, question) => {
+    await supabase.from('faqs').delete().eq('id', id);
+    logActivity('faq_delete', id, `Deleted FAQ: "${(question || '').slice(0, 40)}"`, { role: faqTab });
+    fetchFaqs();
+  };
+
+  const toggleFaq = async (id, current) => {
+    await supabase.from('faqs').update({ is_active: !current }).eq('id', id);
+    logActivity('faq_toggle', id, `${current ? 'Deactivated' : 'Activated'} FAQ`, { role: faqTab });
+    fetchFaqs();
   };
 
   // ── Render helpers ────────────────────────────────────────────────────────
@@ -941,6 +1005,10 @@ export default function AdminScreen({ navigation }) {
           ticket_status:   { label: 'Ticket Status Update',  color: GREY   },
           invite_admin:    { label: 'Admin Invited',         color: LIME   },
           revoke_admin:    { label: 'Admin Revoked',         color: RED    },
+          faq_add:         { label: 'FAQ Added',             color: LIME   },
+          faq_edit:        { label: 'FAQ Edited',            color: BLUE   },
+          faq_delete:      { label: 'FAQ Deleted',           color: RED    },
+          faq_toggle:      { label: 'FAQ Toggled',           color: GREY   },
         };
         // Unique admins for filter chips
         const admins = [...new Set(activityLog.map(l => l.admin_email))].filter(Boolean);
@@ -1036,6 +1104,222 @@ export default function AdminScreen({ navigation }) {
           </ScrollView>
         );
       })()}
+
+      {/* ════════ FAQs ════════ */}
+      {section === 'faqs' && (
+        <>
+          <View style={s.tabBar}>
+            {['customer', 'rider'].map(r => {
+              const count = faqs.filter(f => f.role === r).length;
+              return (
+                <TouchableOpacity
+                  key={r}
+                  style={[s.tab, faqTab === r && s.tabActive]}
+                  onPress={() => { setFaqTab(r); setShowFaqForm(false); setEditingFaqId(null); }}
+                >
+                  <Text style={[s.tabTxt, faqTab === r && s.tabTxtActive]}>
+                    {r === 'customer' ? 'Customers' : 'Riders'}{count > 0 ? ` (${count})` : ''}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <ScrollView style={s.scroll} contentContainerStyle={[s.page, { gap: 12 }]} showsVerticalScrollIndicator={false}>
+
+            {/* Admin search bar */}
+            <View style={[afs.searchRow, faqSearch && afs.searchRowActive]}>
+              <Ionicons name="search-outline" size={15} color={faqSearch ? LIME : GREY} />
+              <TextInput
+                style={afs.searchInput}
+                placeholder="Search FAQs…"
+                placeholderTextColor={GREY}
+                value={faqSearch}
+                onChangeText={v => { setFaqSearch(v); setShowFaqForm(false); setEditingFaqId(null); }}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {faqSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setFaqSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close-circle" size={16} color={GREY} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {faqsLoading && <ActivityIndicator color={LIME} />}
+
+            {/* Empty state */}
+            {!faqsLoading && faqs.filter(f => f.role === faqTab).length === 0 && !showFaqForm && !faqSearch && (
+              <View style={[s.center, { paddingTop: 30 }]}>
+                <Ionicons name="help-circle-outline" size={36} color={MUTED} />
+                <Text style={[s.emptyTxt, { marginTop: 10 }]}>No FAQs yet for {faqTab}s</Text>
+                <Text style={{ color: MUTED, fontSize: 13, textAlign: 'center', marginTop: 6 }}>
+                  Add FAQs that users will see in their Settings screen
+                </Text>
+              </View>
+            )}
+
+            {/* Search no-results hint */}
+            {faqSearch.length > 0 && (() => {
+              const matches = faqs.filter(f => f.role === faqTab &&
+                (f.question.toLowerCase().includes(faqSearch.toLowerCase()) ||
+                 f.answer.toLowerCase().includes(faqSearch.toLowerCase())));
+              if (matches.length === 0) return (
+                <View style={[s.center, { paddingTop: 16 }]}>
+                  <Text style={s.emptyTxt}>No matches for "{faqSearch}"</Text>
+                </View>
+              );
+              return <Text style={afs.resultCount}>{matches.length} match{matches.length !== 1 ? 'es' : ''}</Text>;
+            })()}
+
+            {/* Existing FAQ cards */}
+            {faqs.filter(f => {
+              if (f.role !== faqTab) return false;
+              if (!faqSearch.trim()) return true;
+              const q = faqSearch.toLowerCase();
+              return f.question.toLowerCase().includes(q) || f.answer.toLowerCase().includes(q);
+            }).map(faq => (
+              <View
+                key={faq.id}
+                style={[s.card, { gap: 10, borderWidth: showFaqForm && editingFaqId === faq.id ? 1 : 0, borderColor: LIME + '40' }]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.cardTitle, { fontSize: 14 }]}>{faq.question}</Text>
+                    <Text style={[s.cardSub, { marginTop: 4, lineHeight: 18 }]} numberOfLines={2}>{faq.answer}</Text>
+                  </View>
+                  {!(showFaqForm && editingFaqId === faq.id) && (
+                    <View style={{ flexDirection: 'row', gap: 2 }}>
+                      <TouchableOpacity onPress={() => toggleFaq(faq.id, faq.is_active)} style={{ padding: 6 }}>
+                        <Ionicons name={faq.is_active ? 'eye-outline' : 'eye-off-outline'} size={18} color={faq.is_active ? GREEN : MUTED} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setEditingFaqId(faq.id);
+                          setFaqForm({ question: faq.question, answer: faq.answer, display_order: faq.display_order });
+                          setShowFaqForm(true);
+                        }}
+                        style={{ padding: 6 }}
+                      >
+                        <Ionicons name="pencil-outline" size={18} color={LIME} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => deleteFaq(faq.id, faq.question)} style={{ padding: 6 }}>
+                        <Ionicons name="trash-outline" size={18} color={RED} />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <View style={[s.badge, { backgroundColor: faq.is_active ? GREEN+'20' : MUTED+'20' }]}>
+                    <Text style={[s.badgeTxt, { color: faq.is_active ? GREEN : MUTED }]}>
+                      {faq.is_active ? 'Visible' : 'Hidden'}
+                    </Text>
+                  </View>
+                  <View style={[s.badge, { backgroundColor: '#1e1e1e' }]}>
+                    <Text style={[s.badgeTxt, { color: GREY }]}>Order {faq.display_order}</Text>
+                  </View>
+                </View>
+
+                {/* Inline edit form */}
+                {showFaqForm && editingFaqId === faq.id && (
+                  <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: '#1e1e1e', paddingTop: 12 }}>
+                    <TextInput
+                      style={ts.input}
+                      placeholder="Question"
+                      placeholderTextColor={GREY}
+                      value={faqForm.question}
+                      onChangeText={v => setFaqForm(p => ({ ...p, question: v }))}
+                      multiline
+                    />
+                    <TextInput
+                      style={[ts.input, { minHeight: 80, textAlignVertical: 'top' }]}
+                      placeholder="Answer"
+                      placeholderTextColor={GREY}
+                      value={faqForm.answer}
+                      onChangeText={v => setFaqForm(p => ({ ...p, answer: v }))}
+                      multiline
+                    />
+                    <TextInput
+                      style={ts.input}
+                      placeholder="Display order (0 = first)"
+                      placeholderTextColor={GREY}
+                      value={String(faqForm.display_order)}
+                      onChangeText={v => setFaqForm(p => ({ ...p, display_order: v }))}
+                      keyboardType="numeric"
+                    />
+                    <View style={s.actionRow}>
+                      <TouchableOpacity style={s.cancelBtn} onPress={() => { setEditingFaqId(null); setShowFaqForm(false); }}>
+                        <Text style={s.cancelTxt}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[s.approveBtn, faqSaving && { opacity: 0.6 }]} onPress={saveFaq} disabled={faqSaving}>
+                        {faqSaving ? <ActivityIndicator color={BG} size="small" /> : <Text style={s.approveBtnTxt}>Save Changes</Text>}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </View>
+            ))}
+
+            {/* Add new FAQ form — hidden while searching */}
+            {showFaqForm && editingFaqId === null && !faqSearch && (
+              <View style={[s.card, { gap: 12, borderWidth: 1, borderColor: LIME + '30' }]}>
+                <Text style={[s.sectionHeading, { marginBottom: 0 }]}>
+                  New {faqTab === 'customer' ? 'Customer' : 'Rider'} FAQ
+                </Text>
+                <TextInput
+                  style={ts.input}
+                  placeholder="Question"
+                  placeholderTextColor={GREY}
+                  value={faqForm.question}
+                  onChangeText={v => setFaqForm(p => ({ ...p, question: v }))}
+                  multiline
+                />
+                <TextInput
+                  style={[ts.input, { minHeight: 80, textAlignVertical: 'top' }]}
+                  placeholder="Answer"
+                  placeholderTextColor={GREY}
+                  value={faqForm.answer}
+                  onChangeText={v => setFaqForm(p => ({ ...p, answer: v }))}
+                  multiline
+                />
+                <TextInput
+                  style={ts.input}
+                  placeholder="Display order (0 = first)"
+                  placeholderTextColor={GREY}
+                  value={String(faqForm.display_order)}
+                  onChangeText={v => setFaqForm(p => ({ ...p, display_order: v }))}
+                  keyboardType="numeric"
+                />
+                <View style={s.actionRow}>
+                  <TouchableOpacity style={s.cancelBtn} onPress={() => { setShowFaqForm(false); setFaqForm({ question: '', answer: '', display_order: 0 }); }}>
+                    <Text style={s.cancelTxt}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.approveBtn, faqSaving && { opacity: 0.6 }]} onPress={saveFaq} disabled={faqSaving}>
+                    {faqSaving ? <ActivityIndicator color={BG} size="small" /> : <Text style={s.approveBtnTxt}>Add FAQ</Text>}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Add FAQ button — hidden while searching */}
+            {!showFaqForm && !faqSearch && (
+              <TouchableOpacity
+                style={[s.approveBtn, { flexDirection: 'row', gap: 8 }]}
+                onPress={() => {
+                  setEditingFaqId(null);
+                  setFaqForm({ question: '', answer: '', display_order: faqs.filter(f => f.role === faqTab).length });
+                  setShowFaqForm(true);
+                }}
+              >
+                <Ionicons name="add" size={18} color={BG} />
+                <Text style={s.approveBtnTxt}>Add FAQ</Text>
+              </TouchableOpacity>
+            )}
+
+          </ScrollView>
+        </>
+      )}
 
       {/* ════════ TEAM ════════ */}
       {section === 'team' && isSuperAdmin && (
@@ -1292,4 +1576,16 @@ const ls = StyleSheet.create({
   adminInitial:     { width: 18, height: 18, borderRadius: 9, backgroundColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center' },
   adminInitialTxt:  { fontSize: 9, fontWeight: '900', color: LIME },
   adminLabel:       { fontSize: 12, color: GREY, fontWeight: '600' },
+});
+
+// ─── Admin FAQ search styles ──────────────────────────────────────────────────
+const afs = StyleSheet.create({
+  searchRow:       {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#1a1a1a', borderRadius: 12, paddingHorizontal: 12,
+    borderWidth: 1.5, borderColor: MUTED,
+  },
+  searchRowActive: { borderColor: LIME + '55' },
+  searchInput:     { flex: 1, paddingVertical: 12, color: '#fff', fontSize: 14 },
+  resultCount:     { fontSize: 11, color: GREY, fontWeight: '700', letterSpacing: 0.5, marginLeft: 2 },
 });
