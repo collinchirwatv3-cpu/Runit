@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   StyleSheet, Text, View, TouchableOpacity, ScrollView,
-  Switch, Modal, TextInput, Alert, Linking, ActivityIndicator,
+  Switch, Modal, TextInput, Alert, Linking, ActivityIndicator, Image,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -168,6 +168,47 @@ Liability
 
 Last updated: May 2026`;
 
+// ─── Payment Methods sheet ────────────────────────────────────────────────
+
+function PaymentMethodsSheet({ visible, onClose }) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={s.sheetBg}>
+        <View style={s.sheet}>
+          <View style={s.sheetBar} />
+          <Text style={s.sheetTitle}>Payment <Text style={{ color: LIME }}>Methods</Text></Text>
+          <Text style={s.sheetSub}>Your active payment methods</Text>
+
+          {/* PayFast card */}
+          <View style={pm.card}>
+            <View style={pm.cardLeft}>
+              <View style={pm.iconWrap}>
+                <Ionicons name="card-outline" size={20} color={LIME} />
+              </View>
+              <View>
+                <Text style={pm.cardTitle}>PayFast</Text>
+                <Text style={pm.cardSub}>Debit card · Credit card · EFT · Instant EFT</Text>
+              </View>
+            </View>
+            <View style={pm.activeBadge}>
+              <Text style={pm.activeTxt}>Active</Text>
+            </View>
+          </View>
+
+          <Text style={pm.note}>
+            Your card details are securely handled by PayFast and never stored on RunIt servers.
+            You'll be redirected to PayFast to complete each payment.
+          </Text>
+
+          <TouchableOpacity style={[s.saveBtn, { marginTop: 8 }]} onPress={onClose} activeOpacity={0.85}>
+            <Text style={s.saveBtnTxt}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Settings screen ──────────────────────────────────────────────────────
 
 export default function SettingsScreen({ navigation }) {
@@ -177,6 +218,7 @@ export default function SettingsScreen({ navigation }) {
   const [showChangePass, setShowChangePass] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
@@ -196,6 +238,12 @@ export default function SettingsScreen({ navigation }) {
         { label: 'Push Notifications', sub: 'Order alerts & updates',        icon: 'notifications-outline', toggle: pushNotifs,   onToggle: setPushNotifs },
         { label: 'Order Updates',      sub: 'Status changes for deliveries', icon: 'cube-outline',          toggle: orderUpdates, onToggle: setOrderUpdates },
         { label: 'Promotions',         sub: 'Deals and offers',               icon: 'pricetag-outline',      toggle: promoEmails,  onToggle: setPromoEmails },
+      ],
+    },
+    {
+      title: 'Payment',
+      rows: [
+        { label: 'Payment Methods', sub: 'Debit card · Credit card · EFT', icon: 'card-outline', onPress: () => setShowPayment(true) },
       ],
     },
     {
@@ -286,6 +334,7 @@ export default function SettingsScreen({ navigation }) {
       <ChangePasswordSheet visible={showChangePass} onClose={() => setShowChangePass(false)} />
       <InfoSheet visible={showPrivacy} onClose={() => setShowPrivacy(false)} title="Privacy Policy" body={PRIVACY_BODY} />
       <InfoSheet visible={showTerms}   onClose={() => setShowTerms(false)}   title="Terms of Service" body={TERMS_BODY} />
+      <PaymentMethodsSheet visible={showPayment} onClose={() => setShowPayment(false)} />
       <BottomBar active="settings" role="customer" onPress={(tabId) => {
         if (tabId === 'home') navigation.navigate('Customer');
         else if (tabId === 'orders') navigation.navigate('Orders');
@@ -344,4 +393,25 @@ const s = StyleSheet.create({
   cancelTxt: { color: GREY, fontSize: 14, textAlign: 'center', marginTop: 16 },
 
   infoBody: { fontSize: 14, color: '#aaa', lineHeight: 22, fontWeight: '500' },
+});
+
+const pm = StyleSheet.create({
+  card: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#1a1a1a', borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: LIME + '30', marginBottom: 16,
+  },
+  cardLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  iconWrap: {
+    width: 42, height: 42, borderRadius: 12,
+    backgroundColor: LIME + '15', alignItems: 'center', justifyContent: 'center',
+  },
+  cardTitle: { fontSize: 16, fontWeight: '800', color: '#fff' },
+  cardSub: { fontSize: 12, color: GREY, marginTop: 2 },
+  activeBadge: {
+    backgroundColor: '#22c55e20', borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  activeTxt: { fontSize: 12, fontWeight: '700', color: '#22c55e' },
+  note: { fontSize: 13, color: GREY, lineHeight: 20, marginBottom: 8 },
 });

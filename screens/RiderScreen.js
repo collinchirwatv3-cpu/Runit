@@ -537,6 +537,20 @@ function PulseRing({ delay, size }) {
   );
 }
 
+// SA banks with standard branch codes
+const SA_BANKS = [
+  { name: 'ABSA',           branch: '632005' },
+  { name: 'Standard Bank',  branch: '051001' },
+  { name: 'FNB',            branch: '250655' },
+  { name: 'Nedbank',        branch: '198765' },
+  { name: 'Capitec Bank',   branch: '470010' },
+  { name: 'African Bank',   branch: '430000' },
+  { name: 'Discovery Bank', branch: '679000' },
+  { name: 'TymeBank',       branch: '678910' },
+  { name: 'Investec Bank',  branch: '580105' },
+  { name: 'Old Mutual Bank',branch: '642005' },
+];
+
 // ─── Main screen ──────────────────────────────────────────────────────────
 
 export default function RiderScreen({ navigation }) {
@@ -556,9 +570,13 @@ export default function RiderScreen({ navigation }) {
   const [earningsHistory, setEarningsHistory] = useState({ today: 0, trips: 0, week: [0, 0, 0, 0, 0, 0, 0] });
   const [deliveryHistory, setDeliveryHistory] = useState([]);
   const [showCashout, setShowCashout] = useState(false);
-  const [cashoutForm, setCashoutForm] = useState({ amount: '', bank: '', account: '', branch: '' });
+  const [cashoutForm, setCashoutForm] = useState({ amount: '' });
   const [cashoutLoading, setCashoutLoading] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [bankDetails, setBankDetails] = useState(null);    // null = loading
+  const [showBankDetails, setShowBankDetails] = useState(false);
+  const [bankForm, setBankForm] = useState({ bank: '', accountHolder: '', account: '', branch: '', accountType: 'cheque' });
+  const [bankSaving, setBankSaving] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const locationIntervalRef = useRef(null);
   const sub = useRef(null);
@@ -581,6 +599,16 @@ export default function RiderScreen({ navigation }) {
       const uid = data?.user?.id || null;
       setUserId(uid);
       if (uid) loadEarnings(uid);
+      const meta = data?.user?.user_metadata || {};
+      const bd = {
+        bank: meta.bank_name || '',
+        accountHolder: meta.account_holder || '',
+        account: meta.account_number || '',
+        branch: meta.branch_code || '',
+        accountType: meta.account_type || 'cheque',
+      };
+      setBankDetails(bd);
+      setBankForm(bd);
     });
   }, []);
 
@@ -894,10 +922,35 @@ export default function RiderScreen({ navigation }) {
     else if (tabId === 'settings') navigation.navigate('Settings');
   };
 
+  const saveBankDetails = async () => {
+    if (!bankForm.bank || !bankForm.account || !bankForm.accountHolder) {
+      showToast('Bank name, account holder & number are required'); return;
+    }
+    setBankSaving(true);
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        bank_name: bankForm.bank,
+        account_holder: bankForm.accountHolder,
+        account_number: bankForm.account,
+        branch_code: bankForm.branch,
+        account_type: bankForm.accountType,
+      },
+    });
+    setBankSaving(false);
+    if (error) { showToast('Failed to save — try again'); return; }
+    setBankDetails({ ...bankForm });
+    showToast('Bank details saved ✓');
+    setShowBankDetails(false);
+  };
+
   const submitCashout = async () => {
-    const { amount, bank, account, branch } = cashoutForm;
-    if (!amount || !bank || !account || !branch) {
-      showToast('Please fill in all fields'); return;
+    const { amount } = cashoutForm;
+    if (!amount || isNaN(parseFloat(amount))) { showToast('Enter a valid amount'); return; }
+    if (!bankDetails?.bank || !bankDetails?.account) {
+      showToast('Add your bank details first');
+      setShowCashout(false);
+      setShowBankDetails(true);
+      return;
     }
     setCashoutLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -906,15 +959,15 @@ export default function RiderScreen({ navigation }) {
       rider_name: user?.user_metadata?.name || '',
       rider_email: user?.email || '',
       amount: parseFloat(amount),
-      bank_name: bank,
-      account_number: account,
-      branch_code: branch,
+      bank_name: bankDetails.bank,
+      account_number: bankDetails.account,
+      branch_code: bankDetails.branch,
     }]);
     setCashoutLoading(false);
     if (error) { showToast('Failed to submit — try again'); return; }
     showToast('Cashout request submitted!');
     setShowCashout(false);
-    setCashoutForm({ amount: '', bank: '', account: '', branch: '' });
+    setCashoutForm({ amount: '' });
   };
 
   const activeTab = view === 'earnings' ? 'earnings' : view === 'jobs' ? 'jobs' : 'home';
@@ -1272,11 +1325,25 @@ export default function RiderScreen({ navigation }) {
             <Text style={s.earnLabel}>TODAY</Text>
             <Text style={s.earnAmt}>R {earnings}</Text>
             <Text style={s.earnSub}>{trips} {trips === 1 ? 'delivery' : 'deliveries'}</Text>
-            <TouchableOpacity style={s.cashInstant} onPress={() => setShowCashout(true)}>
-              <Ionicons name="flash" size={15} color={BG} />
-              <Text style={s.cashInstantTxt}>Cash Out</Text>
-              <Text style={s.cashInstantSub}>Request payout</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity style={s.cashInstant} onPress={() => setShowCashout(true)}>
+                <Ionicons name="flash" size={15} color={BG} />
+                <Text style={s.cashInstantTxt}>Cash Out</Text>
+                <Text style={s.cashInstantSub}>Request payout</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.cashInstant, { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: bankDetails?.bank ? LIME + '40' : MUTED }]}
+                onPress={() => setShowBankDetails(true)}
+              >
+                <Ionicons name="card-outline" size={15} color={bankDetails?.bank ? LIME : GREY} />
+                <Text style={[s.cashInstantTxt, { color: bankDetails?.bank ? LIME : GREY }]}>
+                  {bankDetails?.bank || 'Add Bank'}
+                </Text>
+                <Text style={[s.cashInstantSub, { color: bankDetails?.bank ? GREY : MUTED }]}>
+                  {bankDetails?.bank ? `****${(bankDetails.account || '').slice(-4)}` : 'Bank details'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <Text style={s.sectionLabel}>This Week</Text>
@@ -1521,24 +1588,36 @@ export default function RiderScreen({ navigation }) {
             <Text style={s.modalTitle}>Request Payout</Text>
             <Text style={s.modalSub}>Available: R {Math.round(earningsHistory.today)}</Text>
 
-            {[
-              { key: 'amount', label: 'Amount (ZAR)', placeholder: 'e.g. 150', keyboardType: 'numeric' },
-              { key: 'bank', label: 'Bank Name', placeholder: 'e.g. FNB' },
-              { key: 'account', label: 'Account Number', placeholder: '1234567890', keyboardType: 'numeric' },
-              { key: 'branch', label: 'Branch Code', placeholder: 'e.g. 250655', keyboardType: 'numeric' },
-            ].map(({ key, label, placeholder, keyboardType }) => (
-              <View key={key} style={s.modalField}>
-                <Text style={s.modalFieldLabel}>{label}</Text>
-                <TextInput
-                  style={s.modalInput}
-                  placeholder={placeholder}
-                  placeholderTextColor={GREY}
-                  keyboardType={keyboardType || 'default'}
-                  value={cashoutForm[key]}
-                  onChangeText={(v) => setCashoutForm(f => ({ ...f, [key]: v }))}
-                />
+            {/* Bank details summary */}
+            {bankDetails?.bank ? (
+              <View style={s.bankSummaryCard}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.bankSummaryBank}>{bankDetails.bank}</Text>
+                  <Text style={s.bankSummaryDetail}>{bankDetails.accountHolder}  •  ****{bankDetails.account.slice(-4)}</Text>
+                  <Text style={s.bankSummaryDetail}>{bankDetails.accountType === 'savings' ? 'Savings' : bankDetails.accountType === 'transmission' ? 'Transmission' : 'Cheque'}  {bankDetails.branch ? `• ${bankDetails.branch}` : ''}</Text>
+                </View>
+                <TouchableOpacity onPress={() => { setShowCashout(false); setShowBankDetails(true); }}>
+                  <Text style={s.bankEditTxt}>Edit</Text>
+                </TouchableOpacity>
               </View>
-            ))}
+            ) : (
+              <TouchableOpacity style={s.addBankBtn} onPress={() => { setShowCashout(false); setShowBankDetails(true); }}>
+                <Ionicons name="add-circle-outline" size={18} color={LIME} />
+                <Text style={s.addBankTxt}>Add bank details to enable payout</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={s.modalField}>
+              <Text style={s.modalFieldLabel}>Amount (ZAR)</Text>
+              <TextInput
+                style={s.modalInput}
+                placeholder="e.g. 150"
+                placeholderTextColor={GREY}
+                keyboardType="numeric"
+                value={cashoutForm.amount}
+                onChangeText={(v) => setCashoutForm({ amount: v })}
+              />
+            </View>
 
             <View style={s.modalActions}>
               <TouchableOpacity style={s.modalCancelBtn} onPress={() => setShowCashout(false)}>
@@ -1552,6 +1631,100 @@ export default function RiderScreen({ navigation }) {
                 {cashoutLoading
                   ? <ActivityIndicator color={BG} size="small" />
                   : <Text style={s.modalSubmitTxt}>Submit Request</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Bank Details Modal ── */}
+      <Modal visible={showBankDetails} transparent animationType="slide" onRequestClose={() => setShowBankDetails(false)}>
+        <View style={s.modalOverlay}>
+          <View style={[s.modalSheet, { paddingBottom: 40 }]}>
+            <View style={s.modalHandle} />
+            <Text style={s.modalTitle}>Bank Details</Text>
+            <Text style={s.modalSub}>Used for all payout requests</Text>
+
+            {/* Bank picker */}
+            <Text style={s.modalFieldLabel}>Bank</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+              {SA_BANKS.map((b) => (
+                <TouchableOpacity
+                  key={b.name}
+                  style={[s.bankChip, bankForm.bank === b.name && s.bankChipActive]}
+                  onPress={() => setBankForm(f => ({ ...f, bank: b.name, branch: b.branch }))}
+                >
+                  <Text style={[s.bankChipTxt, bankForm.bank === b.name && s.bankChipTxtActive]}>{b.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* Account holder */}
+            <View style={s.modalField}>
+              <Text style={s.modalFieldLabel}>Account Holder Name</Text>
+              <TextInput
+                style={s.modalInput}
+                placeholder="Full name as on bank account"
+                placeholderTextColor={GREY}
+                value={bankForm.accountHolder}
+                onChangeText={(v) => setBankForm(f => ({ ...f, accountHolder: v }))}
+              />
+            </View>
+
+            {/* Account number */}
+            <View style={s.modalField}>
+              <Text style={s.modalFieldLabel}>Account Number</Text>
+              <TextInput
+                style={s.modalInput}
+                placeholder="1234567890"
+                placeholderTextColor={GREY}
+                keyboardType="numeric"
+                value={bankForm.account}
+                onChangeText={(v) => setBankForm(f => ({ ...f, account: v }))}
+              />
+            </View>
+
+            {/* Account type */}
+            <Text style={s.modalFieldLabel}>Account Type</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+              {['cheque', 'savings', 'transmission'].map((t) => (
+                <TouchableOpacity
+                  key={t}
+                  style={[s.bankChip, { flex: 1, justifyContent: 'center' }, bankForm.accountType === t && s.bankChipActive]}
+                  onPress={() => setBankForm(f => ({ ...f, accountType: t }))}
+                >
+                  <Text style={[s.bankChipTxt, bankForm.accountType === t && s.bankChipTxtActive]}>
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Branch code */}
+            <View style={s.modalField}>
+              <Text style={s.modalFieldLabel}>Branch Code</Text>
+              <TextInput
+                style={s.modalInput}
+                placeholder="Auto-filled when bank selected"
+                placeholderTextColor={GREY}
+                keyboardType="numeric"
+                value={bankForm.branch}
+                onChangeText={(v) => setBankForm(f => ({ ...f, branch: v }))}
+              />
+            </View>
+
+            <View style={s.modalActions}>
+              <TouchableOpacity style={s.modalCancelBtn} onPress={() => setShowBankDetails(false)}>
+                <Text style={s.modalCancelTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.modalSubmitBtn, bankSaving && { opacity: 0.6 }]}
+                onPress={saveBankDetails}
+                disabled={bankSaving}
+              >
+                {bankSaving
+                  ? <ActivityIndicator color={BG} size="small" />
+                  : <Text style={s.modalSubmitTxt}>Save Details</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -1993,4 +2166,26 @@ const s = StyleSheet.create({
   modalCancelTxt: { color: GREY, fontWeight: '700', fontSize: 15 },
   modalSubmitBtn: { flex: 2, height: 48, borderRadius: 12, backgroundColor: LIME, alignItems: 'center', justifyContent: 'center' },
   modalSubmitTxt: { color: BG, fontWeight: '800', fontSize: 15 },
+  // Bank details
+  bankSummaryCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#1a1a1a', borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: '#2a2a2a', marginBottom: 16,
+  },
+  bankSummaryBank: { fontSize: 15, fontWeight: '800', color: '#fff', marginBottom: 3 },
+  bankSummaryDetail: { fontSize: 12, color: GREY, fontWeight: '500' },
+  bankEditTxt: { fontSize: 13, fontWeight: '700', color: LIME },
+  addBankBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: LIME + '12', borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: LIME + '30', marginBottom: 16,
+  },
+  addBankTxt: { fontSize: 14, fontWeight: '700', color: LIME },
+  bankChip: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: MUTED,
+  },
+  bankChipActive: { backgroundColor: LIME + '20', borderColor: LIME },
+  bankChipTxt: { fontSize: 13, fontWeight: '600', color: GREY },
+  bankChipTxtActive: { color: LIME },
 });
