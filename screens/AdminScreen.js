@@ -89,10 +89,16 @@ export default function AdminScreen({ navigation }) {
   const [loading, setLoading]               = useState(true);
   const [refreshing, setRefreshing]         = useState(false);
 
-  // Super-admin identity
+  // Admin identity
   const [isSuperAdmin, setIsSuperAdmin]     = useState(false);
   const [currentUserId, setCurrentUserId]   = useState(null);
   const [currentUserEmail, setCurrentUserEmail] = useState('');
+  const [adminName, setAdminName]           = useState('');
+
+  // Activity log (super admin only)
+  const [activityLog, setActivityLog]       = useState([]);
+  const [logsLoading, setLogsLoading]       = useState(false);
+  const [logFilter, setLogFilter]           = useState('all'); // 'all' | admin email
 
   // Feedback UI state
   const [feedbackTab, setFeedbackTab]       = useState('open');
@@ -146,22 +152,37 @@ export default function AdminScreen({ navigation }) {
     setTeamMembers(data || []);
   };
 
+  const fetchLogs = async () => {
+    setLogsLoading(true);
+    const { data } = await supabase
+      .from('admin_activity_log')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(500);
+    setActivityLog(data || []);
+    setLogsLoading(false);
+  };
+
   useEffect(() => {
-    // Load current user + check super admin status
+    // Load current user + check super admin status + load name
     supabase.auth.getUser().then(async ({ data }) => {
       const uid = data?.user?.id;
       const email = data?.user?.email || '';
+      const metaName = data?.user?.user_metadata?.name || '';
       setCurrentUserId(uid);
       setCurrentUserEmail(email);
       if (uid) {
         const { data: rec } = await supabase
           .from('admin_team')
-          .select('is_super_admin')
+          .select('is_super_admin, name')
           .eq('user_id', uid)
           .maybeSingle();
+        // Use name from admin_team row, fall back to user_metadata, then email prefix
+        setAdminName(rec?.name || metaName || email.split('@')[0]);
         if (rec?.is_super_admin) {
           setIsSuperAdmin(true);
           fetchTeam();
+          fetchLogs();
         }
       }
     });
@@ -194,6 +215,7 @@ export default function AdminScreen({ navigation }) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Invite failed');
       setInviteMsg(`✓ Invite sent to ${inviteEmail.trim()}`);
+      logActivity('invite_admin', json.userId || '', `Invited ${inviteName.trim() || inviteEmail.trim()} as admin`, { email: inviteEmail.trim() });
       setInviteEmail(''); setInviteName('');
       fetchTeam();
     } catch (e) {
@@ -217,6 +239,8 @@ export default function AdminScreen({ navigation }) {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Revoke failed');
+      const target = teamMembers.find(m => m.user_id === userId);
+      logActivity('revoke_admin', userId, `Revoked admin access for ${target?.name || target?.email || userId}`, { email: target?.email });
       fetchTeam();
     } catch (e) {
       alert(e.message);
@@ -257,34 +281,79 @@ export default function AdminScreen({ navigation }) {
   const riderTripCount = (riderId) => orders.filter(o => o.rider_id === riderId && o.status === 'delivered').length;
   const riderTodayTrips = (riderId) => orders.filter(o => o.rider_id === riderId && o.status === 'delivered' && o.created_at?.startsWith(today)).length;
 
+  // ── Activity fingerprint ────────────────────────────────────────────────
+  const logActivity = (action, targetId, description, metadata = {}) => {
+    if (!currentUserId) return;
+    supabase.from('admin_activity_log').insert({
+      admin_id:           currentUserId,
+      admin_email:        currentUserEmail,
+      admin_name:         adminName,
+      action,
+      target_id:          String(targetId),
+      target_description: description,
+      metadata,
+    }).then(() => { if (isSuperAdmin) fetchLogs(); });
+  };
+
   // ── Actions ──────────────────────────────────────────────────────────────
-  const approveVerif   = id => supabase.from('rider_verifications').update({ status: 'approved' }).eq('id', id);
-  const rejectVerif    = async (id) => {
+  const approveVerif = async (id) => {
+    const v = verifications.find(r => r.id === id);
+    await supabase.from('rider_verifications').update({ status: 'approved' }).eq('id', id);
+    logActivity('approve_rider', id, `Approved ${v?.rider_name || 'rider'} (${v?.rider_email || ''})`, { rider_id: v?.rider_id });
+  };
+  const rejectVerif = async (id) => {
     if (!rejectReason.trim()) return;
+    const v = verifications.find(r => r.id === id);
     await supabase.from('rider_verifications').update({ status: 'rejected', rejection_reason: rejectReason.trim() }).eq('id', id);
+    logActivity('reject_rider', id, `Rejected ${v?.rider_name || 'rider'} — "${rejectReason.trim()}"`, { rider_id: v?.rider_id, reason: rejectReason.trim() });
     setShowRejectInput(null); setRejectReason('');
   };
-  const suspendRider   = id => supabase.from('rider_verifications').update({ status: 'suspended' }).eq('id', id);
-  const reinstateRider = id => supabase.from('rider_verifications').update({ status: 'approved' }).eq('id', id);
-  const markPayoutPaid = id => supabase.from('payout_requests').update({ status: 'paid' }).eq('id', id);
-  const rejectPayout   = id => supabase.from('payout_requests').update({ status: 'rejected' }).eq('id', id);
-  const cancelOrder    = id => supabase.from('orders').update({ status: 'cancelled' }).eq('id', id);
+  const suspendRider = async (id) => {
+    const v = verifications.find(r => r.id === id);
+    await supabase.from('rider_verifications').update({ status: 'suspended' }).eq('id', id);
+    logActivity('suspend_rider', id, `Suspended ${v?.rider_name || 'rider'}`, { rider_id: v?.rider_id });
+  };
+  const reinstateRider = async (id) => {
+    const v = verifications.find(r => r.id === id);
+    await supabase.from('rider_verifications').update({ status: 'approved' }).eq('id', id);
+    logActivity('reinstate_rider', id, `Reinstated ${v?.rider_name || 'rider'}`, { rider_id: v?.rider_id });
+  };
+  const markPayoutPaid = async (id) => {
+    const p = payouts.find(r => r.id === id);
+    await supabase.from('payout_requests').update({ status: 'paid' }).eq('id', id);
+    logActivity('payout_paid', id, `Paid R${p?.amount} to ${p?.rider_name || 'rider'} via ${p?.bank_name || ''}`, { amount: p?.amount, rider: p?.rider_name });
+  };
+  const rejectPayout = async (id) => {
+    const p = payouts.find(r => r.id === id);
+    await supabase.from('payout_requests').update({ status: 'rejected' }).eq('id', id);
+    logActivity('payout_rejected', id, `Rejected payout R${p?.amount} for ${p?.rider_name || 'rider'}`, { amount: p?.amount });
+  };
+  const cancelOrder = async (id) => {
+    const o = orders.find(r => r.id === id);
+    await supabase.from('orders').update({ status: 'cancelled' }).eq('id', id);
+    logActivity('cancel_order', id, `Cancelled order — ${o?.from_address?.slice(0,25) || ''} → ${o?.to_address?.slice(0,25) || ''}`, { price: o?.price });
+  };
 
   const replyTicket = async (id) => {
     const reply = replyText[id]?.trim();
     if (!reply) return;
+    const t = tickets.find(r => r.id === id);
     setReplying(id);
     await supabase.from('support_tickets').update({
       admin_reply: reply,
       status: 'resolved',
       replied_at: new Date().toISOString(),
     }).eq('id', id);
+    logActivity('reply_ticket', id, `Replied to "${t?.subject || 'ticket'}" from ${t?.user_name || t?.user_email || 'user'}`, { role: t?.role });
     setReplyText(prev => ({ ...prev, [id]: '' }));
     setReplying(null);
   };
 
-  const setTicketStatus = (id, status) =>
-    supabase.from('support_tickets').update({ status }).eq('id', id);
+  const setTicketStatus = async (id, status) => {
+    const t = tickets.find(r => r.id === id);
+    await supabase.from('support_tickets').update({ status }).eq('id', id);
+    logActivity('ticket_status', id, `Set "${t?.subject || 'ticket'}" → ${status}`, { status });
+  };
 
   // ── Render helpers ────────────────────────────────────────────────────────
   const badge = (n, color = RED) => n > 0
@@ -298,10 +367,9 @@ export default function AdminScreen({ navigation }) {
 
       {/* ── Header ── */}
       <View style={s.header}>
-        <View style={{ gap: 2 }}>
-          <Text style={s.title}>Admin Panel</Text>
+        <View style={{ gap: 3 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={s.subtitle}>RunIt Operations</Text>
+            <Text style={s.title}>Admin Panel</Text>
             {isSuperAdmin && (
               <View style={[s.badge, { backgroundColor: LIME + '18', flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
                 <Ionicons name="shield-checkmark" size={11} color={LIME} />
@@ -309,6 +377,9 @@ export default function AdminScreen({ navigation }) {
               </View>
             )}
           </View>
+          <Text style={s.subtitle}>
+            Signed in as <Text style={{ color: '#aaa', fontWeight: '700' }}>{adminName || currentUserEmail}</Text>
+          </Text>
         </View>
         <TouchableOpacity onPress={async () => { await signOut(); navigation.replace('Landing'); }} style={s.logoutBtn}>
           <Ionicons name="log-out-outline" size={22} color={GREY} />
@@ -319,7 +390,10 @@ export default function AdminScreen({ navigation }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.navBar} contentContainerStyle={s.navBarContent}>
         {[
           ...SECTIONS.filter(s => isSuperAdmin || s.key !== 'payouts'),
-          ...(isSuperAdmin ? [{ key: 'team', label: 'Team', icon: 'people-outline' }] : []),
+          ...(isSuperAdmin ? [
+            { key: 'team', label: 'Team',  icon: 'people-outline'     },
+            { key: 'logs', label: 'Logs',  icon: 'receipt-outline'    },
+          ] : []),
         ].map(sec => {
           const active = section === sec.key;
           const openTickets = tickets.filter(t => t.status === 'open').length;
@@ -849,6 +923,116 @@ export default function AdminScreen({ navigation }) {
         </>
       )}
 
+      {/* ════════ LOGS ════════ */}
+      {section === 'logs' && isSuperAdmin && (() => {
+        const ACTION_META = {
+          approve_rider:   { label: 'Approved Rider',       color: GREEN  },
+          reject_rider:    { label: 'Rejected Rider',        color: RED    },
+          suspend_rider:   { label: 'Suspended Rider',       color: ORANGE },
+          reinstate_rider: { label: 'Reinstated Rider',      color: GREEN  },
+          cancel_order:    { label: 'Cancelled Order',       color: RED    },
+          payout_paid:     { label: 'Payout Paid',           color: LIME   },
+          payout_rejected: { label: 'Payout Rejected',       color: RED    },
+          reply_ticket:    { label: 'Replied to Ticket',     color: BLUE   },
+          ticket_status:   { label: 'Ticket Status Update',  color: GREY   },
+          invite_admin:    { label: 'Admin Invited',         color: LIME   },
+          revoke_admin:    { label: 'Admin Revoked',         color: RED    },
+        };
+        // Unique admins for filter chips
+        const admins = [...new Set(activityLog.map(l => l.admin_email))].filter(Boolean);
+        const filtered = logFilter === 'all' ? activityLog : activityLog.filter(l => l.admin_email === logFilter);
+
+        return (
+          <ScrollView style={s.scroll} contentContainerStyle={[s.page, { gap: 16 }]} showsVerticalScrollIndicator={false}>
+
+            {/* Filter + refresh row */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {['all', ...admins].map(a => (
+                    <TouchableOpacity
+                      key={a}
+                      style={[ls.filterChip, logFilter === a && ls.filterChipActive]}
+                      onPress={() => setLogFilter(a)}
+                    >
+                      <Text style={[ls.filterChipTxt, logFilter === a && { color: BG }]}>
+                        {a === 'all' ? 'All admins' : (teamMembers.find(m => m.email === a)?.name || a.split('@')[0])}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+              <TouchableOpacity onPress={fetchLogs} style={{ padding: 6 }}>
+                <Ionicons name="refresh-outline" size={18} color={GREY} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Summary strip */}
+            <View style={ls.summaryRow}>
+              {[
+                { label: 'Total actions', val: activityLog.length },
+                { label: 'Today', val: activityLog.filter(l => l.created_at?.startsWith(today)).length },
+                { label: 'Admins active', val: admins.length },
+              ].map((item, i) => (
+                <View key={i} style={ls.summaryCard}>
+                  <Text style={ls.summaryVal}>{item.val}</Text>
+                  <Text style={ls.summaryLabel}>{item.label}</Text>
+                </View>
+              ))}
+            </View>
+
+            {logsLoading && <ActivityIndicator color={LIME} style={{ marginTop: 20 }} />}
+
+            {!logsLoading && filtered.length === 0 && (
+              <View style={[s.center, { paddingTop: 30 }]}>
+                <Ionicons name="receipt-outline" size={36} color={MUTED} />
+                <Text style={[s.emptyTxt, { marginTop: 10 }]}>No activity yet</Text>
+                <Text style={{ color: MUTED, fontSize: 13, textAlign: 'center', marginTop: 6 }}>
+                  Every admin action is recorded here automatically
+                </Text>
+              </View>
+            )}
+
+            {/* Timeline */}
+            {filtered.map((log, i) => {
+              const meta = ACTION_META[log.action] || { label: log.action, color: GREY };
+              const isFirst = i === 0;
+              const isLast = i === filtered.length - 1;
+              return (
+                <View key={log.id} style={ls.logRow}>
+                  {/* Timeline spine */}
+                  <View style={ls.spineCol}>
+                    <View style={[ls.dot, { backgroundColor: meta.color }]} />
+                    {!isLast && <View style={ls.spine} />}
+                  </View>
+                  {/* Content */}
+                  <View style={[ls.logCard, isFirst && { borderColor: meta.color + '40' }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <View style={[ls.actionBadge, { backgroundColor: meta.color + '20' }]}>
+                        <Text style={[ls.actionBadgeTxt, { color: meta.color }]}>{meta.label}</Text>
+                      </View>
+                      <Text style={ls.timestamp}>{fmt(log.created_at)}</Text>
+                    </View>
+                    <Text style={ls.description}>{log.target_description}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                      <View style={ls.adminInitial}>
+                        <Text style={ls.adminInitialTxt}>
+                          {(log.admin_name || log.admin_email || '?')[0].toUpperCase()}
+                        </Text>
+                      </View>
+                      <Text style={ls.adminLabel}>
+                        {log.admin_name || log.admin_email?.split('@')[0]}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+
+          </ScrollView>
+        );
+      })()}
+
       {/* ════════ TEAM ════════ */}
       {section === 'team' && isSuperAdmin && (
         <ScrollView style={s.scroll} contentContainerStyle={[s.page, { gap: 20 }]} showsVerticalScrollIndicator={false}>
@@ -1081,4 +1265,27 @@ const ts = StyleSheet.create({
     borderWidth: 1,
     borderColor: MUTED,
   },
+});
+
+// ─── Logs section styles ─────────────────────────────────────────────────────
+const ls = StyleSheet.create({
+  filterChip:       { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: MUTED },
+  filterChipActive: { backgroundColor: LIME, borderColor: LIME },
+  filterChipTxt:    { fontSize: 12, fontWeight: '700', color: GREY },
+  summaryRow:       { flexDirection: 'row', gap: 10 },
+  summaryCard:      { flex: 1, backgroundColor: SURFACE, borderRadius: 12, padding: 12, alignItems: 'center', gap: 4 },
+  summaryVal:       { fontSize: 22, fontWeight: '900', color: '#fff' },
+  summaryLabel:     { fontSize: 11, color: GREY, fontWeight: '600' },
+  logRow:           { flexDirection: 'row', gap: 12 },
+  spineCol:         { alignItems: 'center', width: 16 },
+  dot:              { width: 12, height: 12, borderRadius: 6, marginTop: 14 },
+  spine:            { flex: 1, width: 1.5, backgroundColor: '#1e1e1e', marginTop: 4 },
+  logCard:          { flex: 1, backgroundColor: SURFACE, borderRadius: 14, padding: 14, gap: 6, marginBottom: 4, borderWidth: 1, borderColor: 'transparent' },
+  actionBadge:      { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  actionBadgeTxt:   { fontSize: 11, fontWeight: '800', letterSpacing: 0.2 },
+  timestamp:        { fontSize: 11, color: MUTED, fontWeight: '500' },
+  description:      { fontSize: 13, color: '#ddd', lineHeight: 19 },
+  adminInitial:     { width: 18, height: 18, borderRadius: 9, backgroundColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center' },
+  adminInitialTxt:  { fontSize: 9, fontWeight: '900', color: LIME },
+  adminLabel:       { fontSize: 12, color: GREY, fontWeight: '600' },
 });
