@@ -330,8 +330,12 @@ export default function AdminScreen({ navigation }) {
   };
   const cancelOrder = async (id) => {
     const o = orders.find(r => r.id === id);
-    await supabase.from('orders').update({ status: 'cancelled' }).eq('id', id);
-    logActivity('cancel_order', id, `Cancelled order — ${o?.from_address?.slice(0,25) || ''} → ${o?.to_address?.slice(0,25) || ''}`, { price: o?.price });
+    await supabase.from('orders').update({
+      status: 'cancelled',
+      rider_id: null,
+      rider_name: null,
+    }).eq('id', id);
+    logActivity('cancel_order', id, `Cancelled order — ${o?.from_address?.slice(0,25) || ''} → ${o?.to_address?.slice(0,25) || ''}`, { price: o?.price, had_rider: !!o?.rider_id });
   };
 
   const replyTicket = async (id) => {

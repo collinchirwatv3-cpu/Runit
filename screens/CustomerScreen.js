@@ -818,6 +818,12 @@ export default function CustomerScreen({ navigation }) {
           showToast('Your rider cancelled — finding a new one...');
         }
         if (newStatus === 'delivered') showToast('Delivered! 🎉');
+        if (newStatus === 'cancelled') {
+          orderSubRef.current?.unsubscribe(); orderSubRef.current = null;
+          riderLocSubRef.current?.unsubscribe(); riderLocSubRef.current = null;
+          showToast('Your order was cancelled. Please contact support if you were charged.');
+          setTimeout(() => { resetBooking(); setScreen('home'); }, 2200);
+        }
       })
       .subscribe();
     orderSubRef.current = channel;

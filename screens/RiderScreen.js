@@ -661,6 +661,7 @@ export default function RiderScreen({ navigation }) {
   const [jobs, setJobs] = useState([]);
   const [userName, setUserName] = useState('');
   const [activeJob, setActiveJob] = useState(null);
+  const _setActiveJob = (job) => { activeJobRef.current = job; setActiveJob(job); };
   const [view, setView] = useState('home');
   const [userId, setUserId] = useState(null);
   const [toastMsg, setToastMsg] = useState('');
@@ -686,6 +687,7 @@ export default function RiderScreen({ navigation }) {
   const riderLocRef = useRef(null);      // current rider position (for proximity)
   const passiveWatchRef = useRef(null);  // web geolocation watchId
   const riderTripMapRef = useRef(null);  // iframe/WebView ref for active-trip map
+  const activeJobRef = useRef(null);     // mirror of activeJob for subscription closures
 
   const sendToRiderMap = (msg) => {
     const el = riderTripMapRef.current;
@@ -796,8 +798,18 @@ export default function RiderScreen({ navigation }) {
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'orders',
       }, (p) => {
+        // ── Admin cancelled the rider's active job ──────────────────────────
+        if (p.new.status === 'cancelled' && activeJobRef.current?.id === p.new.id) {
+          stopLocationBroadcast();
+          _setActiveJob(null);
+          setPinInput('');
+          setPinError(false);
+          setView('home');
+          showToast('⚠️ This order was cancelled by admin');
+          return;
+        }
         if (p.new.status !== 'pending') {
-          // Order no longer available — remove from list
+          // Order no longer available — remove from job list
           setJobs(prev => prev.filter(j => j.id !== p.new.id));
         } else {
           // Order became pending again (e.g. rider breakdown reassignment)
@@ -960,7 +972,7 @@ export default function RiderScreen({ navigation }) {
       }).eq('id', activeJob.id);
     }
     stopLocationBroadcast();
-    setActiveJob(null);
+    _setActiveJob(null);
     setPinInput('');
     setPinError(false);
     setView('home');
@@ -977,7 +989,7 @@ export default function RiderScreen({ navigation }) {
       }).eq('id', activeJob.id);
     }
     stopLocationBroadcast();
-    setActiveJob(null);
+    _setActiveJob(null);
     setPinInput('');
     setPinError(false);
     setCancelLoading(false);
@@ -994,7 +1006,7 @@ export default function RiderScreen({ navigation }) {
       .update({ status: 'on_the_way', rider_id: userId, rider_name: riderName })
       .eq('id', job.id);
     if (error) { showToast('Failed to accept — try again'); return; }
-    setActiveJob(job);
+    _setActiveJob(job);
     setJobs(p => p.filter(j => j.id !== job.id));
     setPinInput('');
     setPinError(false);
@@ -1018,7 +1030,7 @@ export default function RiderScreen({ navigation }) {
     stopLocationBroadcast();
     const done = { ...activeJob };
     setCompletedJob(done);
-    setActiveJob(null);
+    _setActiveJob(null);
     setPinInput('');
     setPinError(false);
     await loadEarnings(userId);
