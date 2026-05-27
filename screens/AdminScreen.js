@@ -89,6 +89,11 @@ export default function AdminScreen({ navigation }) {
   const [loading, setLoading]               = useState(true);
   const [refreshing, setRefreshing]         = useState(false);
 
+  // Super-admin identity
+  const [isSuperAdmin, setIsSuperAdmin]     = useState(false);
+  const [currentUserId, setCurrentUserId]   = useState(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState('');
+
   // Feedback UI state
   const [feedbackTab, setFeedbackTab]       = useState('open');
   const [feedbackRole, setFeedbackRole]     = useState('all'); // 'all' | 'customer' | 'rider'
@@ -105,6 +110,14 @@ export default function AdminScreen({ navigation }) {
 
   // Riders UI state
   const [riderTab, setRiderTab]             = useState('approved');
+
+  // Team UI state
+  const [teamMembers, setTeamMembers]       = useState([]);
+  const [inviteEmail, setInviteEmail]       = useState('');
+  const [inviteName, setInviteName]         = useState('');
+  const [inviting, setInviting]             = useState(false);
+  const [inviteMsg, setInviteMsg]           = useState('');
+  const [revoking, setRevoking]             = useState(null); // userId being revoked
 
   const sub = useRef(null);
 
@@ -125,7 +138,34 @@ export default function AdminScreen({ navigation }) {
     setRefreshing(false);
   };
 
+  const fetchTeam = async () => {
+    const { data } = await supabase
+      .from('admin_team')
+      .select('*')
+      .order('created_at', { ascending: true });
+    setTeamMembers(data || []);
+  };
+
   useEffect(() => {
+    // Load current user + check super admin status
+    supabase.auth.getUser().then(async ({ data }) => {
+      const uid = data?.user?.id;
+      const email = data?.user?.email || '';
+      setCurrentUserId(uid);
+      setCurrentUserEmail(email);
+      if (uid) {
+        const { data: rec } = await supabase
+          .from('admin_team')
+          .select('is_super_admin')
+          .eq('user_id', uid)
+          .maybeSingle();
+        if (rec?.is_super_admin) {
+          setIsSuperAdmin(true);
+          fetchTeam();
+        }
+      }
+    });
+
     fetchAll();
     sub.current = supabase.channel('admin_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_verifications' }, () => fetchAll(true))
@@ -135,6 +175,55 @@ export default function AdminScreen({ navigation }) {
       .subscribe();
     return () => sub.current?.unsubscribe();
   }, []);
+
+  // ── Team actions ──────────────────────────────────────────────────────────
+  const inviteAdmin = async () => {
+    if (!inviteEmail.trim()) return;
+    setInviting(true);
+    setInviteMsg('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin-invite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ email: inviteEmail.trim(), name: inviteName.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Invite failed');
+      setInviteMsg(`✓ Invite sent to ${inviteEmail.trim()}`);
+      setInviteEmail(''); setInviteName('');
+      fetchTeam();
+    } catch (e) {
+      setInviteMsg(`✗ ${e.message}`);
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const revokeAdmin = async (userId, name) => {
+    setRevoking(userId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin-revoke', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ userId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Revoke failed');
+      fetchTeam();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setRevoking(null);
+    }
+  };
 
   // ── Overview stats ───────────────────────────────────────────────────────
   const today    = new Date().toISOString().split('T')[0];
@@ -209,9 +298,16 @@ export default function AdminScreen({ navigation }) {
 
       {/* ── Header ── */}
       <View style={s.header}>
-        <View>
+        <View style={{ gap: 2 }}>
           <Text style={s.title}>Admin Panel</Text>
-          <Text style={s.subtitle}>RunIt Operations</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={s.subtitle}>RunIt Operations</Text>
+            {isSuperAdmin && (
+              <View style={[s.badge, { backgroundColor: LIME + '18' }]}>
+                <Text style={[s.badgeTxt, { color: LIME, fontSize: 10 }]}>⚡ Super Admin</Text>
+              </View>
+            )}
+          </View>
         </View>
         <TouchableOpacity onPress={async () => { await signOut(); navigation.replace('Landing'); }} style={s.logoutBtn}>
           <Ionicons name="log-out-outline" size={22} color={GREY} />
@@ -220,7 +316,10 @@ export default function AdminScreen({ navigation }) {
 
       {/* ── Nav tabs ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.navBar} contentContainerStyle={s.navBarContent}>
-        {SECTIONS.map(sec => {
+        {[
+          ...SECTIONS.filter(s => isSuperAdmin || s.key !== 'payouts'),
+          ...(isSuperAdmin ? [{ key: 'team', label: 'Team', icon: 'people-outline' }] : []),
+        ].map(sec => {
           const active = section === sec.key;
           const openTickets = tickets.filter(t => t.status === 'open').length;
           const alertCount =
@@ -749,6 +848,108 @@ export default function AdminScreen({ navigation }) {
         </>
       )}
 
+      {/* ════════ TEAM ════════ */}
+      {section === 'team' && isSuperAdmin && (
+        <ScrollView style={s.scroll} contentContainerStyle={[s.page, { gap: 20 }]} showsVerticalScrollIndicator={false}>
+
+          {/* Super admin identity card */}
+          <View style={[s.card, { borderWidth: 1, borderColor: LIME + '30', gap: 8 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={[s.avatarCircle, { backgroundColor: LIME + '20', width: 46, height: 46, borderRadius: 23 }]}>
+                <Ionicons name="shield-checkmark" size={20} color={LIME} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.cardTitle, { fontSize: 16 }]}>You — Super Admin</Text>
+                <Text style={s.cardSub}>{currentUserEmail}</Text>
+              </View>
+              <View style={[s.badge, { backgroundColor: LIME + '20' }]}>
+                <Text style={[s.badgeTxt, { color: LIME }]}>Owner</Text>
+              </View>
+            </View>
+            <Text style={{ color: MUTED, fontSize: 12, lineHeight: 17 }}>
+              You have full access to all sections including payouts and team management. Other admins can manage orders, riders and feedback — but not payouts or the team.
+            </Text>
+          </View>
+
+          {/* Current team members */}
+          <Text style={s.sectionHeading}>Current Team ({teamMembers.filter(m => m.is_active && !m.is_super_admin).length})</Text>
+          {teamMembers.filter(m => m.is_active && !m.is_super_admin).length === 0 && (
+            <View style={[s.center, { paddingTop: 20 }]}>
+              <Ionicons name="people-outline" size={36} color={MUTED} />
+              <Text style={[s.emptyTxt, { marginTop: 10 }]}>No team members yet</Text>
+              <Text style={{ color: MUTED, fontSize: 13, textAlign: 'center', marginTop: 6 }}>Invite someone below to give them admin access</Text>
+            </View>
+          )}
+          {teamMembers.filter(m => m.is_active && !m.is_super_admin).map(member => (
+            <View key={member.id} style={[s.card, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+              <View style={[s.avatarCircle, { width: 44, height: 44, borderRadius: 22 }]}>
+                <Text style={{ color: LIME, fontWeight: '800', fontSize: 16 }}>
+                  {(member.name || member.email || '?')[0].toUpperCase()}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.cardTitle, { fontSize: 15 }]}>{member.name || '—'}</Text>
+                <Text style={s.cardSub}>{member.email}</Text>
+                {member.invited_by ? (
+                  <Text style={[s.dateText, { marginTop: 3 }]}>Invited by {member.invited_by}</Text>
+                ) : null}
+              </View>
+              <TouchableOpacity
+                style={[s.rejectBtn, { flex: 0, paddingHorizontal: 14, borderColor: RED + '40' }]}
+                onPress={() => revokeAdmin(member.user_id, member.name)}
+                disabled={revoking === member.user_id}
+              >
+                {revoking === member.user_id
+                  ? <ActivityIndicator size="small" color={RED} />
+                  : <Text style={[s.rejectBtnTxt, { fontSize: 13 }]}>Revoke</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          ))}
+
+          {/* Invite new admin */}
+          <Text style={[s.sectionHeading, { marginTop: 8 }]}>Invite Admin</Text>
+          <View style={[s.card, { gap: 12 }]}>
+            <TextInput
+              style={ts.input}
+              placeholder="Full name"
+              placeholderTextColor={GREY}
+              value={inviteName}
+              onChangeText={setInviteName}
+              autoCapitalize="words"
+            />
+            <TextInput
+              style={ts.input}
+              placeholder="Email address"
+              placeholderTextColor={GREY}
+              value={inviteEmail}
+              onChangeText={v => { setInviteEmail(v); setInviteMsg(''); }}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            <Text style={{ color: MUTED, fontSize: 12, lineHeight: 17 }}>
+              They'll receive a setup link by email. Once they create a password, they land directly in the Admin panel.
+            </Text>
+            {inviteMsg ? (
+              <Text style={{ color: inviteMsg.startsWith('✓') ? GREEN : RED, fontSize: 13, fontWeight: '600' }}>
+                {inviteMsg}
+              </Text>
+            ) : null}
+            <TouchableOpacity
+              style={[s.approveBtn, (!inviteEmail.trim() || inviting) && { opacity: 0.5 }]}
+              onPress={inviteAdmin}
+              disabled={!inviteEmail.trim() || inviting}
+            >
+              {inviting
+                ? <ActivityIndicator color={BG} size="small" />
+                : <Text style={s.approveBtnTxt}>Send Invite</Text>
+              }
+            </TouchableOpacity>
+          </View>
+
+        </ScrollView>
+      )}
+
     </View>
   );
 }
@@ -865,4 +1066,18 @@ const fbs = StyleSheet.create({
   replyLabel:     { fontSize: 11, color: LIME, fontWeight: '700' },
   replyTxt:       { fontSize: 13, color: '#ccc', lineHeight: 19 },
   replyInput:     { backgroundColor: '#1a1a1a', borderRadius: 10, padding: 12, color: '#fff', fontSize: 13, minHeight: 70, borderWidth: 1, borderColor: MUTED, textAlignVertical: 'top' },
+});
+
+// ─── Team section extra styles ──────────────────────────────────────────────
+const ts = StyleSheet.create({
+  input: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    color: '#fff',
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: MUTED,
+  },
 });
