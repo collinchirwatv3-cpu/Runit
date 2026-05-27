@@ -303,8 +303,9 @@ export default function AdminScreen({ navigation }) {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={s.subtitle}>RunIt Operations</Text>
             {isSuperAdmin && (
-              <View style={[s.badge, { backgroundColor: LIME + '18' }]}>
-                <Text style={[s.badgeTxt, { color: LIME, fontSize: 10 }]}>⚡ Super Admin</Text>
+              <View style={[s.badge, { backgroundColor: LIME + '18', flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                <Ionicons name="shield-checkmark" size={11} color={LIME} />
+                <Text style={[s.badgeTxt, { color: LIME, fontSize: 10 }]}>Super Admin</Text>
               </View>
             )}
           </View>
