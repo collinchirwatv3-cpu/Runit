@@ -77,6 +77,9 @@ export default function MerchantScreen({ navigation }) {
   // ── Auth / identity ──
   const [userId,   setUserId]   = useState(null);
   const [userName, setUserName] = useState('');
+  const [storeName, setStoreName] = useState('');
+  const [editingStoreName, setEditingStoreName] = useState(false);
+  const [storeNameInput,   setStoreNameInput]   = useState('');
   const [greetingText, setGreetingText] = useState(null);
   const [defaultPickup, setDefaultPickup] = useState(null); // { label, lat, lon }
 
@@ -128,6 +131,7 @@ export default function MerchantScreen({ navigation }) {
       const uid  = user?.id || null;
       setUserId(uid);
       setUserName(user?.user_metadata?.name || '');
+      setStoreName(user?.user_metadata?.store_name || '');
       setGreetingText(getSmartGreeting(user));
       // Default pickup address from metadata
       const dp = user?.user_metadata?.default_pickup;
@@ -249,7 +253,7 @@ export default function MerchantScreen({ navigation }) {
     const pin = Math.floor(100 + Math.random() * 900).toString();
     const { error } = await supabase.from('orders').insert([{
       user_id:       userId,
-      from_address:  defaultPickup?.label || 'Store',
+      from_address:  defaultPickup?.label || storeName || 'Store',
       to_address:    dispTo,
       from_lat:      defaultPickup?.lat || null,
       from_lon:      defaultPickup?.lon || null,
@@ -368,10 +372,53 @@ export default function MerchantScreen({ navigation }) {
           <View style={s.headerRow}>
             <View style={{ flex: 1 }}>
               <Text style={s.headerLabel}>MERCHANT</Text>
-              <Text style={s.headline}>
-                {userName ? userName.split(' ')[0] + "'s" : 'Your'}{'\n'}
-                <Text style={{ color: LIME }}>Dashboard.</Text>
-              </Text>
+              {editingStoreName ? (
+                <View style={s.storeNameEditRow}>
+                  <TextInput
+                    style={s.storeNameInput}
+                    value={storeNameInput}
+                    onChangeText={setStoreNameInput}
+                    placeholder="Enter store name…"
+                    placeholderTextColor={GREY}
+                    autoFocus
+                    returnKeyType="done"
+                    onSubmitEditing={async () => {
+                      const trimmed = storeNameInput.trim();
+                      if (trimmed) {
+                        await supabase.auth.updateUser({ data: { store_name: trimmed } });
+                        setStoreName(trimmed);
+                      }
+                      setEditingStoreName(false);
+                    }}
+                  />
+                  <TouchableOpacity
+                    onPress={async () => {
+                      const trimmed = storeNameInput.trim();
+                      if (trimmed) {
+                        await supabase.auth.updateUser({ data: { store_name: trimmed } });
+                        setStoreName(trimmed);
+                      }
+                      setEditingStoreName(false);
+                    }}
+                    style={s.storeNameSaveBtn}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={s.storeNameSaveTxt}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                  onPress={() => { setStoreNameInput(storeName); setEditingStoreName(true); }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={s.headline}>
+                    {storeName || (userName ? userName.split(' ')[0] + "'s" : 'Your')}{'\n'}
+                    <Text style={{ color: LIME }}>Store.</Text>
+                  </Text>
+                  <Ionicons name="create-outline" size={18} color={MUTED} style={{ marginBottom: 4 }} />
+                </TouchableOpacity>
+              )}
             </View>
             <TouchableOpacity
               style={s.dispatchFab}
@@ -987,6 +1034,14 @@ const s = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20 },
   headerLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 4 },
   headline: { fontSize: 38, fontWeight: '900', color: '#fff', letterSpacing: -0.5, lineHeight: 42 },
+  storeNameEditRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
+  storeNameInput: {
+    flex: 1, backgroundColor: SURFACE2, borderWidth: 1.5, borderColor: LIME + '50',
+    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10,
+    color: '#fff', fontSize: 24, fontWeight: '900',
+  },
+  storeNameSaveBtn: { backgroundColor: LIME, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  storeNameSaveTxt: { fontSize: 14, fontWeight: '900', color: BG },
 
   dispatchFab: {
     flexDirection: 'row', alignItems: 'center', gap: 7,
