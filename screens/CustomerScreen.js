@@ -659,6 +659,8 @@ export default function CustomerScreen({ navigation }) {
   const [deliveryPin, setDeliveryPin] = useState(null);
   const [riderLocation, setRiderLocation] = useState(null);
   const [riderName, setRiderName] = useState(null);
+  const [riderRating, setRiderRating] = useState(null); // avg rating fetched on accept
+  const [riderId, setRiderId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [userId, setUserId] = useState(null);
@@ -845,12 +847,31 @@ export default function CustomerScreen({ navigation }) {
         setOrderStatus(newStatus);
         if (newStatus === 'on_the_way') {
           const name = payload.new.rider_name || null;
+          const rid  = payload.new.rider_id   || null;
           setRiderName(name);
+          setRiderId(rid);
           showToast(name ? `🏍️  ${name} is coming to collect your parcel!` : '🏍️  Rider is on the way!');
           subscribeRiderLocation(orderId);
+          // Fetch rider's average rating
+          if (rid) {
+            supabase
+              .from('orders')
+              .select('rating')
+              .eq('rider_id', rid)
+              .eq('status', 'delivered')
+              .not('rating', 'is', null)
+              .then(({ data: rd }) => {
+                if (rd?.length) {
+                  const avg = rd.reduce((s, o) => s + (o.rating || 0), 0) / rd.length;
+                  setRiderRating(avg.toFixed(1));
+                }
+              });
+          }
         }
         if (newStatus === 'pending' && prevStatus === 'on_the_way') {
           setRiderName(null);
+          setRiderRating(null);
+          setRiderId(null);
           showToast('Your rider cancelled — finding a new one...');
         }
         if (newStatus === 'delivered') showToast('Delivered! 🎉');
@@ -975,6 +996,7 @@ export default function CustomerScreen({ navigation }) {
     setStarRating(0); setRatingSubmitted(false);
     setActiveOrderId(null); setOrderStatus('pending');
     setDeliveryPin(null); setRiderLocation(null); setRiderName(null);
+    setRiderRating(null); setRiderId(null);
   };
 
   const handleSignOut = async () => {
@@ -1208,12 +1230,20 @@ export default function CustomerScreen({ navigation }) {
           {onTheWay && riderName && (
             <View style={s.riderNameCard}>
               <View style={s.riderNameAvatar}>
-                <Text style={{ fontSize: 20 }}>🏍️</Text>
+                <Text style={s.riderNameInitials}>
+                  {riderName.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')}
+                </Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.riderNameTxt}>{riderName}</Text>
                 <Text style={s.riderNameSub}>is on the way to collect your parcel</Text>
               </View>
+              {riderRating && (
+                <View style={s.riderNameRating}>
+                  <Ionicons name="star" size={12} color="#f59e0b" />
+                  <Text style={s.riderNameRatingTxt}>{riderRating}</Text>
+                </View>
+              )}
             </View>
           )}
 
@@ -1303,15 +1333,25 @@ export default function CustomerScreen({ navigation }) {
           )}
           {onTheWay && (
             <View style={[s.driverCard, { width: '100%' }]}>
-              <View style={s.driverAvatar}><Text style={s.driverAvatarTxt}>🏍</Text></View>
+              <View style={s.driverAvatar}>
+                {riderName ? (
+                  <Text style={s.driverAvatarInitials}>
+                    {riderName.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')}
+                  </Text>
+                ) : (
+                  <Text style={s.driverAvatarTxt}>🏍</Text>
+                )}
+              </View>
               <View style={s.driverInfo}>
-                <Text style={s.driverName}>Rider En Route</Text>
+                <Text style={s.driverName}>{riderName || 'Rider En Route'}</Text>
                 <Text style={s.driverBike}>Blue dot on map = your rider</Text>
               </View>
-              <View style={s.driverRating}>
-                <Ionicons name="star" size={12} color="#f59e0b" />
-                <Text style={s.driverRatingTxt}>4.9</Text>
-              </View>
+              {riderRating && (
+                <View style={s.driverRating}>
+                  <Ionicons name="star" size={12} color="#f59e0b" />
+                  <Text style={s.driverRatingTxt}>{riderRating}</Text>
+                </View>
+              )}
             </View>
           )}
           {delivered && (
@@ -1577,6 +1617,14 @@ const s = StyleSheet.create({
   },
   riderNameTxt: { fontSize: 17, fontWeight: '900', color: '#fff', marginBottom: 2 },
   riderNameSub: { fontSize: 12, color: GREY, fontWeight: '500' },
+  riderNameInitials: { fontSize: 16, fontWeight: '900', color: LIME },
+  riderNameRating: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#f59e0b18', borderRadius: 10,
+    paddingHorizontal: 8, paddingVertical: 4, flexShrink: 0,
+  },
+  riderNameRatingTxt: { fontSize: 13, fontWeight: '800', color: '#f59e0b' },
+  driverAvatarInitials: { fontSize: 16, fontWeight: '900', color: LIME },
   trackBtnWrap: { width: 200, height: 200, alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
   trackCircle: {
     width: 200, height: 200, borderRadius: 100, backgroundColor: LIME,

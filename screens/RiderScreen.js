@@ -658,6 +658,7 @@ export default function RiderScreen({ navigation }) {
   const [online, setOnline] = useState(false);
   const [earnings, setEarnings] = useState(0);
   const [trips, setTrips] = useState(0);
+  const [avgRating, setAvgRating] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [userName, setUserName] = useState('');
   const [activeJob, setActiveJob] = useState(null);
@@ -920,6 +921,18 @@ export default function RiderScreen({ navigation }) {
     setTrips(todayTrips);
     setEarningsHistory({ today: todayTotal, trips: todayTrips, week });
     setDeliveryHistory(data);
+
+    // Compute all-time average rating
+    const { data: ratingRows } = await supabase
+      .from('orders')
+      .select('rating')
+      .eq('rider_id', id)
+      .eq('status', 'delivered')
+      .not('rating', 'is', null);
+    if (ratingRows?.length) {
+      const avg = ratingRows.reduce((s, o) => s + (o.rating || 0), 0) / ratingRows.length;
+      setAvgRating(avg.toFixed(1));
+    }
   };
 
   const startLocationBroadcast = (job) => {
@@ -1317,15 +1330,15 @@ export default function RiderScreen({ navigation }) {
             </View>
             <View style={s.ratingPill}>
               <Ionicons name="star" size={13} color={AMBER} />
-              <Text style={s.ratingTxt}>4.9</Text>
+              <Text style={s.ratingTxt}>{avgRating ?? '—'}</Text>
             </View>
           </View>
 
           <View style={s.statsRow}>
             {[
-              { val: trips,          label: 'Trips',  color: '#fff' },
-              { val: `R${earnings}`, label: 'Today',  color: LIME  },
-              { val: '4.9',          label: 'Rating', color: GREEN },
+              { val: trips,              label: 'Trips',  color: '#fff' },
+              { val: `R${earnings}`,     label: 'Today',  color: LIME  },
+              { val: avgRating ?? '—',   label: 'Rating', color: GREEN },
             ].map((stat, i) => (
               <View key={i} style={s.statCard}>
                 <Text style={[s.statVal, { color: stat.color }]}>{stat.val}</Text>
