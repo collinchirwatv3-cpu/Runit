@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import WebView from 'react-native-webview';
 import { supabase } from '../supabase';
 import { signOut } from '../auth';
-import TopBar from './TopBar';
+import TopBar, { getSmartGreeting } from './TopBar';
 import BottomBar from './BottomBar';
 
 const LIME = '#c8f000';
@@ -439,6 +439,20 @@ function PulseRing({ delay, size }) {
   );
 }
 
+// ─── Cape Town landmark quick picks ──────────────────────────────────────
+const CT_LANDMARKS = [
+  { label: 'V&A Waterfront',         lat: -33.9023, lon: 18.4179 },
+  { label: 'Canal Walk',             lat: -33.8908, lon: 18.5145 },
+  { label: 'Good Hope Centre',       lat: -33.9359, lon: 18.4197 },
+  { label: 'Bree Street',            lat: -33.9241, lon: 18.4183 },
+  { label: 'Woodstock',              lat: -33.9268, lon: 18.4410 },
+  { label: 'Observatory',            lat: -33.9389, lon: 18.4718 },
+  { label: 'Cape Town CBD',          lat: -33.9249, lon: 18.4241 },
+  { label: 'Sea Point',              lat: -33.9197, lon: 18.3898 },
+  { label: 'Green Point',            lat: -33.9057, lon: 18.4104 },
+  { label: 'Camps Bay',              lat: -33.9488, lon: 18.3773 },
+];
+
 // ─── Address search modal ─────────────────────────────────────────────────
 
 function AddressSearchModal({ visible, field, onSelect, onClose }) {
@@ -563,23 +577,36 @@ function AddressSearchModal({ visible, field, onSelect, onClose }) {
             <Text style={am.hint}>No results found</Text>
             <Text style={[am.hint, { fontSize: 12, marginTop: 4 }]}>Try a street name, suburb or landmark</Text>
           </View>
-        ) : recents.length > 0 ? (
-          <ScrollView keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
-            <Text style={am.sectionLabel}>Recent</Text>
-            {recents.map((r, i) => (
-              <TouchableOpacity key={i} style={am.row} onPress={() => pick(r)} activeOpacity={0.7}>
-                <View style={am.rowIcon}><Ionicons name="time-outline" size={17} color={GREY} /></View>
-                <Text style={am.rowPrimary} numberOfLines={1}>{r.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
         ) : (
-          <View style={am.center}>
-            <Ionicons name="location-outline" size={44} color={MUTED} />
-            <Text style={am.hint}>
-              {field === 'from' ? 'Where should we collect from?' : 'Where are we delivering to?'}
-            </Text>
-          </View>
+          <ScrollView keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
+            {/* Cape Town quick picks */}
+            <Text style={am.sectionLabel}>Quick picks · Cape Town</Text>
+            <View style={am.landmarkGrid}>
+              {CT_LANDMARKS.map((lm, i) => (
+                <TouchableOpacity
+                  key={i}
+                  style={am.landmarkChip}
+                  onPress={() => pick(lm)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="location" size={11} color={LIME} style={{ marginRight: 4 }} />
+                  <Text style={am.landmarkTxt}>{lm.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {/* Recent addresses */}
+            {recents.length > 0 && (
+              <>
+                <Text style={am.sectionLabel}>Recent</Text>
+                {recents.map((r, i) => (
+                  <TouchableOpacity key={i} style={am.row} onPress={() => pick(r)} activeOpacity={0.7}>
+                    <View style={am.rowIcon}><Ionicons name="time-outline" size={17} color={GREY} /></View>
+                    <Text style={am.rowPrimary} numberOfLines={1}>{r.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
+          </ScrollView>
         )}
       </View>
     </Modal>
@@ -632,6 +659,17 @@ const am = StyleSheet.create({
   },
   rowPrimary: { fontSize: 15, color: '#f0f0f0', fontWeight: '600', marginBottom: 2 },
   rowSecondary: { fontSize: 12, color: '#666', lineHeight: 16 },
+  landmarkGrid: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
+    paddingHorizontal: 16, paddingBottom: 8,
+  },
+  landmarkChip: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#1a1a1a', borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1, borderColor: '#2a2a2a',
+  },
+  landmarkTxt: { fontSize: 13, color: '#ccc', fontWeight: '600' },
 });
 
 // ─── Main screen ──────────────────────────────────────────────────────────
@@ -666,6 +704,8 @@ export default function CustomerScreen({ navigation }) {
   const [toastMsg, setToastMsg] = useState('');
   const [userId, setUserId] = useState(null);
   const [userName, setUserName] = useState('');
+  const [userPhone, setUserPhone] = useState(null);
+  const [greetingText, setGreetingText] = useState(null);
   const [focusedField, setFocusedField] = useState(null); // for notes input
   const [fromConfirmed, setFromConfirmed] = useState(false);
   const [toConfirmed, setToConfirmed] = useState(false);
@@ -710,9 +750,12 @@ export default function CustomerScreen({ navigation }) {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      const uid = data?.user?.id || null;
+      const user = data?.user;
+      const uid = user?.id || null;
       setUserId(uid);
-      setUserName(data?.user?.user_metadata?.name || '');
+      setUserName(user?.user_metadata?.name || '');
+      setUserPhone(user?.user_metadata?.phone || null);
+      setGreetingText(getSmartGreeting(user));
       if (uid) registerPush(uid);
     });
 
@@ -923,6 +966,7 @@ export default function CustomerScreen({ navigation }) {
         from_lon: fromCoords?.lon || null,
         to_lat: toCoords?.lat || null,
         to_lon: toCoords?.lon || null,
+        customer_phone: userPhone || null,
       }])
       .select('id')
       .single();
@@ -1029,7 +1073,7 @@ export default function CustomerScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar userName={userName} />
+        <TopBar userName={userName} greetingText={greetingText} />
         <View style={s.homeContent}>
           <View>
             <Text style={s.homeTitle}>Send a</Text>
@@ -1057,7 +1101,7 @@ export default function CustomerScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar userName={userName} />
+        <TopBar userName={userName} greetingText={greetingText} />
         <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
           <TouchableOpacity onPress={() => setScreen('home')} style={s.backRow}>
@@ -1234,7 +1278,7 @@ export default function CustomerScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar userName={userName} />
+        <TopBar userName={userName} greetingText={greetingText} />
         <ScrollView style={s.scroll} contentContainerStyle={[s.scrollContent, { alignItems: 'center' }]} showsVerticalScrollIndicator={false}>
 
           <Text style={[s.trackStatus, { alignSelf: 'flex-start' }]}>{statusLabel}</Text>

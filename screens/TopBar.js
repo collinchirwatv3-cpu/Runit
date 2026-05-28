@@ -1,23 +1,67 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 
 const LIME = '#c8f000';
 const BG = '#080808';
 
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
+// ─── Smart greeting ───────────────────────────────────────────────────────
+// Call this once after supabase.auth.getUser() resolves.
+// Pass the full user object — reads created_at and user_metadata.name.
+export function getSmartGreeting(user) {
+  if (!user) return null;
+  const firstName = (user.user_metadata?.name || '').split(' ')[0].trim() || 'there';
+
+  // New user — account created today
+  const createdAt = user.created_at ? new Date(user.created_at) : null;
+  const isNewUser = createdAt && createdAt.toDateString() === new Date().toDateString();
+
+  if (isNewUser) {
+    _updateLastSeen();
+    return `Welcome, ${firstName}! 🏍️`;
+  }
+
+  // Long absence — 7+ days since last open
+  let longAbsence = false;
+  if (Platform.OS === 'web') {
+    try {
+      const raw = localStorage.getItem('runit_last_seen');
+      if (raw) {
+        const daysSince = (Date.now() - parseInt(raw, 10)) / (1000 * 60 * 60 * 24);
+        if (daysSince >= 7) longAbsence = true;
+      }
+    } catch (_) {}
+  }
+  _updateLastSeen();
+
+  if (longAbsence) return `Good to have you back, ${firstName}!`;
+  return `Welcome back, ${firstName}!`;
 }
 
-export default function TopBar({ userName }) {
+function _updateLastSeen() {
+  if (Platform.OS === 'web') {
+    try { localStorage.setItem('runit_last_seen', Date.now().toString()); } catch (_) {}
+  }
+}
+
+// ─── TopBar component ─────────────────────────────────────────────────────
+// greetingText — if provided, overrides the time-of-day fallback greeting
+export default function TopBar({ userName, greetingText }) {
+  function timeGreeting() {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  const displayGreeting = greetingText
+    || (userName ? `${timeGreeting()}, ${userName.split(' ')[0]}` : null);
+
   return (
     <View style={s.bar}>
       <View style={s.row}>
         <Text style={s.logo}>RUN<Text style={{ color: LIME }}>IT</Text></Text>
-        {userName ? (
-          <Text style={s.greet}>{greeting()}, <Text style={s.greetName}>{userName.split(' ')[0]}</Text></Text>
+        {displayGreeting ? (
+          <Text style={s.greet} numberOfLines={1}>{displayGreeting}</Text>
         ) : null}
       </View>
     </View>
@@ -49,11 +93,8 @@ const s = StyleSheet.create({
   },
   greet: {
     fontSize: 13,
-    color: '#555',
-    fontWeight: '500',
-  },
-  greetName: {
-    color: '#aaa',
-    fontWeight: '700',
+    color: '#888',
+    fontWeight: '600',
+    maxWidth: 220,
   },
 });

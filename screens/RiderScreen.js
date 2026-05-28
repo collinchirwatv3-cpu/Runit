@@ -7,7 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { signOut } from '../auth';
-import TopBar from './TopBar';
+import TopBar, { getSmartGreeting } from './TopBar';
 import BottomBar from './BottomBar';
 
 const LIME = '#c8f000';
@@ -507,6 +507,8 @@ function formatOrder(o) {
     fromLon: o.from_lon || null,
     toLat: o.to_lat || null,
     toLon: o.to_lon || null,
+    customerPhone: o.customer_phone || null,
+    userId: o.user_id || null,
     distToPickup: null, // filled after proximity check
   };
 }
@@ -661,6 +663,7 @@ export default function RiderScreen({ navigation }) {
   const [avgRating, setAvgRating] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [userName, setUserName] = useState('');
+  const [greetingText, setGreetingText] = useState(null);
   const [activeJob, setActiveJob] = useState(null);
   const _setActiveJob = (job) => { activeJobRef.current = job; setActiveJob(job); };
   const [view, setView] = useState('home');
@@ -702,11 +705,13 @@ export default function RiderScreen({ navigation }) {
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
-      const uid = data?.user?.id || null;
+      const user = data?.user;
+      const uid = user?.id || null;
       setUserId(uid);
       if (uid) loadEarnings(uid);
-      const meta = data?.user?.user_metadata || {};
+      const meta = user?.user_metadata || {};
       setUserName(meta.name || '');
+      setGreetingText(getSmartGreeting(user));
       const bd = {
         bank: meta.bank_name || '',
         accountHolder: meta.account_holder || '',
@@ -1154,7 +1159,7 @@ export default function RiderScreen({ navigation }) {
   return (
     <View style={s.container}>
       <StatusBar style={view === 'active' ? 'dark' : 'light'} />
-      {view !== 'active' && <TopBar userName={userName} />}
+      {view !== 'active' && <TopBar userName={userName} greetingText={greetingText} />}
 
       {/* ── Floating SOS button — always visible ── */}
       <SOSButton activeJob={activeJob} onBreakdown={handleBreakdown} />
@@ -1217,6 +1222,25 @@ export default function RiderScreen({ navigation }) {
                 <Ionicons name="chatbubble-outline" size={13} color={LIME} />
                 <Text style={s.tripNotesTxt} numberOfLines={2}>{activeJob.notes}</Text>
               </View>
+            ) : null}
+
+            {/* WhatsApp customer */}
+            {activeJob.customerPhone ? (
+              <TouchableOpacity
+                style={s.waBtn}
+                activeOpacity={0.8}
+                onPress={() => {
+                  const msg = encodeURIComponent(
+                    `Hi! I'm ${userName} from RunIt 🏍️ I've accepted your delivery and I'm on my way to collect the package. See you soon!`
+                  );
+                  const phone = activeJob.customerPhone.replace(/\D/g, '');
+                  const intl = phone.startsWith('0') ? '27' + phone.slice(1) : phone;
+                  Linking.openURL(`https://wa.me/${intl}?text=${msg}`);
+                }}
+              >
+                <Ionicons name="logo-whatsapp" size={17} color="#fff" />
+                <Text style={s.waBtnTxt}>Message customer on WhatsApp</Text>
+              </TouchableOpacity>
             ) : null}
 
             {/* PIN entry */}
@@ -1324,9 +1348,9 @@ export default function RiderScreen({ navigation }) {
         <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
           <View style={s.greeting}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={s.greetLabel}>RIDER DASHBOARD</Text>
-              <Text style={s.greetTitle}>Ready to{'\n'}earn?</Text>
+              <Text style={s.greetTitle}>{greetingText || 'Ready to earn?'}</Text>
             </View>
             <View style={s.ratingPill}>
               <Ionicons name="star" size={13} color={AMBER} />
@@ -1334,17 +1358,28 @@ export default function RiderScreen({ navigation }) {
             </View>
           </View>
 
-          <View style={s.statsRow}>
-            {[
-              { val: trips,              label: 'Trips',  color: '#fff' },
-              { val: `R${earnings}`,     label: 'Today',  color: LIME  },
-              { val: avgRating ?? '—',   label: 'Rating', color: GREEN },
-            ].map((stat, i) => (
-              <View key={i} style={s.statCard}>
-                <Text style={[s.statVal, { color: stat.color }]}>{stat.val}</Text>
-                <Text style={s.statLabel}>{stat.label}</Text>
+          {/* Earnings hero */}
+          <View style={s.earningsHeroCard}>
+            <Text style={s.earningsHeroLabel}>TODAY'S EARNINGS</Text>
+            <Text style={s.earningsHeroAmt}>
+              <Text style={s.earningsHeroCurr}>R</Text>
+              {earnings}
+            </Text>
+            <View style={s.earningsHeroMeta}>
+              <View style={s.earningsHeroStat}>
+                <Ionicons name="bicycle-outline" size={13} color={GREY} />
+                <Text style={s.earningsHeroStatTxt}>{trips} trip{trips !== 1 ? 's' : ''}</Text>
               </View>
-            ))}
+              {avgRating && (
+                <>
+                  <View style={s.earningsHeroSep} />
+                  <View style={s.earningsHeroStat}>
+                    <Ionicons name="star" size={12} color={AMBER} />
+                    <Text style={s.earningsHeroStatTxt}>{avgRating} rating</Text>
+                  </View>
+                </>
+              )}
+            </View>
           </View>
 
           <TouchableOpacity
@@ -2122,9 +2157,23 @@ const s = StyleSheet.create({
 
   greeting: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
   greetLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 6 },
-  greetTitle: { fontSize: 32, fontWeight: '900', color: '#fff', letterSpacing: -0.5, lineHeight: 36 },
-  ratingPill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: SURFACE, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 },
+  greetTitle: { fontSize: 28, fontWeight: '900', color: '#fff', letterSpacing: -0.5, lineHeight: 34 },
+  ratingPill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: SURFACE, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, flexShrink: 0 },
   ratingTxt: { fontSize: 14, fontWeight: '800', color: '#fff' },
+
+  // Earnings hero card
+  earningsHeroCard: {
+    backgroundColor: SURFACE, borderRadius: 24, padding: 24,
+    marginBottom: 16, borderWidth: 1, borderColor: LIME + '20',
+    alignItems: 'center',
+  },
+  earningsHeroLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 8 },
+  earningsHeroAmt: { fontSize: 64, fontWeight: '900', color: '#fff', letterSpacing: -2, lineHeight: 68 },
+  earningsHeroCurr: { fontSize: 28, fontWeight: '900', color: GREY, letterSpacing: 0 },
+  earningsHeroMeta: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8 },
+  earningsHeroStat: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  earningsHeroStatTxt: { fontSize: 13, fontWeight: '600', color: GREY },
+  earningsHeroSep: { width: 1, height: 14, backgroundColor: MUTED },
 
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   statCard: { flex: 1, backgroundColor: SURFACE, borderRadius: 18, padding: 16, alignItems: 'center' },
@@ -2234,6 +2283,12 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(200,240,0,0.12)',
   },
   tripNotesTxt: { flex: 1, fontSize: 12, color: '#bbb', fontWeight: '500', lineHeight: 18 },
+  waBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#25d366', borderRadius: 14, paddingVertical: 13,
+    marginHorizontal: 20, marginBottom: 8,
+  },
+  waBtnTxt: { fontSize: 14, fontWeight: '800', color: '#fff' },
   tripPinRow: { alignItems: 'center', marginTop: 10, marginBottom: 4 },
   tripPinLbl: { fontSize: 9, fontWeight: '800', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 10 },
 

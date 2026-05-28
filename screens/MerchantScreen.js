@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { signOut } from '../auth';
-import TopBar from './TopBar';
+import TopBar, { getSmartGreeting } from './TopBar';
 import BottomBar from './BottomBar';
 
 const LIME = '#c8f000';
@@ -32,6 +32,7 @@ export default function MerchantScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState('home');
   const [userId, setUserId] = useState(null);
+  const [greetingText, setGreetingText] = useState(null);
   const [focused, setFocused] = useState(null);
   const [orders, setOrders] = useState([
     { id: '#047', customer: 'Naledi D.', route: 'Woodstock → Sea Point', status: 'on_way',  price: 55 },
@@ -41,7 +42,11 @@ export default function MerchantScreen({ navigation }) {
   ]);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id || null));
+    supabase.auth.getUser().then(({ data }) => {
+      const user = data?.user;
+      setUserId(user?.id || null);
+      setGreetingText(getSmartGreeting(user));
+    });
   }, []);
 
   const handleSignOut = async () => {
@@ -102,7 +107,7 @@ export default function MerchantScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar />
+        <TopBar greetingText={greetingText} />
         <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
           <View style={s.headerRow}>
@@ -253,7 +258,7 @@ export default function MerchantScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar />
+        <TopBar greetingText={greetingText} />
         <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
           <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
             <Ionicons name="arrow-back" size={18} color={GREY} />
