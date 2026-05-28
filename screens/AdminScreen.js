@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  ActivityIndicator, TextInput, Linking, RefreshControl,
+  ActivityIndicator, TextInput, Linking, RefreshControl, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
@@ -629,7 +629,11 @@ export default function AdminScreen({ navigation }) {
                 return (
                   <View key={v.id} style={[s.card, { marginBottom: 12 }]}>
                     <View style={s.cardHeader}>
-                      <View style={s.avatarCircle}><Text style={{ fontSize: 20 }}>🏍️</Text></View>
+                      <View style={s.avatarCircle}>
+                        {v.selfie_url
+                          ? <Image source={{ uri: v.selfie_url }} style={s.avatarPhoto} />
+                          : <Text style={{ fontSize: 20 }}>🏍️</Text>}
+                      </View>
                       <View style={{ flex: 1 }}>
                         <Text style={s.cardTitle}>{v.rider_name || 'Unnamed'}</Text>
                         <Text style={s.cardSub}>{v.rider_email || '—'}</Text>
@@ -733,7 +737,11 @@ export default function AdminScreen({ navigation }) {
                 return (
                   <View key={v.id} style={[s.card, { marginBottom: 12 }]}>
                     <View style={s.cardHeader}>
-                      <View style={s.avatarCircle}><Text style={{ fontSize: 20 }}>🏍️</Text></View>
+                      <View style={s.avatarCircle}>
+                        {v.selfie_url
+                          ? <Image source={{ uri: v.selfie_url }} style={s.avatarPhoto} />
+                          : <Text style={{ fontSize: 20 }}>🏍️</Text>}
+                      </View>
                       <View style={{ flex: 1 }}>
                         <Text style={s.cardTitle}>{v.rider_name || 'Unnamed rider'}</Text>
                         <Text style={s.cardSub}>{v.rider_email || '—'}</Text>
@@ -1472,7 +1480,8 @@ const s = StyleSheet.create({
   // Cards
   card:       { backgroundColor: SURFACE, borderRadius: 16, padding: 14, gap: 10 },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  avatarCircle:{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#1e1e1e', alignItems: 'center', justifyContent: 'center' },
+  avatarCircle:{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#1e1e1e', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarPhoto: { width: 42, height: 42, borderRadius: 21 },
   cardTitle:  { fontSize: 15, fontWeight: '700', color: '#fff' },
   cardSub:    { fontSize: 12, color: GREY, marginTop: 2 },
   dateText:   { fontSize: 11, color: MUTED, marginTop: 2 },

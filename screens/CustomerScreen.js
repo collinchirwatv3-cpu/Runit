@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
   StyleSheet, Text, View, TouchableOpacity, Modal,
-  Animated, TextInput, ScrollView, Alert, ActivityIndicator, Platform, Share,
+  Animated, TextInput, ScrollView, Alert, ActivityIndicator, Platform, Share, Image,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -660,6 +660,7 @@ export default function CustomerScreen({ navigation }) {
   const [riderLocation, setRiderLocation] = useState(null);
   const [riderName, setRiderName] = useState(null);
   const [riderRating, setRiderRating] = useState(null); // avg rating fetched on accept
+  const [riderPhoto, setRiderPhoto] = useState(null);   // selfie_url from rider_verifications
   const [riderId, setRiderId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
@@ -852,8 +853,19 @@ export default function CustomerScreen({ navigation }) {
           setRiderId(rid);
           showToast(name ? `🏍️  ${name} is coming to collect your parcel!` : '🏍️  Rider is on the way!');
           subscribeRiderLocation(orderId);
-          // Fetch rider's average rating
+          // Fetch rider's selfie photo + average rating in parallel
           if (rid) {
+            // Selfie from rider_verifications
+            supabase
+              .from('rider_verifications')
+              .select('selfie_url')
+              .eq('rider_id', rid)
+              .maybeSingle()
+              .then(({ data: rv }) => {
+                if (rv?.selfie_url) setRiderPhoto(rv.selfie_url);
+              });
+
+            // Average star rating from delivered orders
             supabase
               .from('orders')
               .select('rating')
@@ -871,6 +883,7 @@ export default function CustomerScreen({ navigation }) {
         if (newStatus === 'pending' && prevStatus === 'on_the_way') {
           setRiderName(null);
           setRiderRating(null);
+          setRiderPhoto(null);
           setRiderId(null);
           showToast('Your rider cancelled — finding a new one...');
         }
@@ -996,7 +1009,7 @@ export default function CustomerScreen({ navigation }) {
     setStarRating(0); setRatingSubmitted(false);
     setActiveOrderId(null); setOrderStatus('pending');
     setDeliveryPin(null); setRiderLocation(null); setRiderName(null);
-    setRiderRating(null); setRiderId(null);
+    setRiderRating(null); setRiderPhoto(null); setRiderId(null);
   };
 
   const handleSignOut = async () => {
@@ -1230,9 +1243,13 @@ export default function CustomerScreen({ navigation }) {
           {onTheWay && riderName && (
             <View style={s.riderNameCard}>
               <View style={s.riderNameAvatar}>
-                <Text style={s.riderNameInitials}>
-                  {riderName.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')}
-                </Text>
+                {riderPhoto ? (
+                  <Image source={{ uri: riderPhoto }} style={s.riderNameAvatarImg} />
+                ) : (
+                  <Text style={s.riderNameInitials}>
+                    {riderName.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')}
+                  </Text>
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.riderNameTxt}>{riderName}</Text>
@@ -1334,7 +1351,9 @@ export default function CustomerScreen({ navigation }) {
           {onTheWay && (
             <View style={[s.driverCard, { width: '100%' }]}>
               <View style={s.driverAvatar}>
-                {riderName ? (
+                {riderPhoto ? (
+                  <Image source={{ uri: riderPhoto }} style={s.driverAvatarImg} />
+                ) : riderName ? (
                   <Text style={s.driverAvatarInitials}>
                     {riderName.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')}
                   </Text>
@@ -1618,6 +1637,8 @@ const s = StyleSheet.create({
   riderNameTxt: { fontSize: 17, fontWeight: '900', color: '#fff', marginBottom: 2 },
   riderNameSub: { fontSize: 12, color: GREY, fontWeight: '500' },
   riderNameInitials: { fontSize: 16, fontWeight: '900', color: LIME },
+  riderNameAvatarImg: { width: 44, height: 44, borderRadius: 14 },
+  driverAvatarImg: { width: 44, height: 44, borderRadius: 22 },
   riderNameRating: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: '#f59e0b18', borderRadius: 10,

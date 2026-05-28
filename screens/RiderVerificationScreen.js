@@ -27,6 +27,8 @@ function pickImageWeb() {
 export default function RiderVerificationScreen({ navigation }) {
   const [user, setUser] = useState(null);
   const [verification, setVerification] = useState(null);
+  const [selfieFile, setSelfieFile] = useState(null);
+  const [selfiePreview, setSelfiePreview] = useState(null);
   const [licenseFile, setLicenseFile] = useState(null);
   const [bikeFile, setBikeFile] = useState(null);
   const [discFile, setDiscFile] = useState(null);
@@ -65,6 +67,14 @@ export default function RiderVerificationScreen({ navigation }) {
 
     return () => sub.current?.unsubscribe();
   }, []);
+
+  const pickSelfie = async () => {
+    if (Platform.OS !== 'web') return;
+    const file = await pickImageWeb();
+    if (!file) return;
+    setSelfieFile(file);
+    setSelfiePreview(URL.createObjectURL(file));
+  };
 
   const pickLicense = async () => {
     if (Platform.OS !== 'web') return;
@@ -121,11 +131,13 @@ export default function RiderVerificationScreen({ navigation }) {
 
   const handleSubmit = async () => {
     setError('');
+    const hasSelfie = selfieFile || verification?.selfie_url;
     const hasLicense = licenseFile || verification?.license_url;
     const hasBike = bikeFile || verification?.bike_url;
     const hasDisc = discFile || verification?.disc_url;
     const expiryIso = discExpiry ? parseDiscExpiry(discExpiry) : verification?.disc_expiry;
 
+    if (!hasSelfie) { setError('Please upload a clear photo of your face (selfie)'); return; }
     if (!hasLicense) { setError("Please upload your driver's license"); return; }
     if (!hasBike) { setError('Please upload a photo of your bike'); return; }
     if (!hasDisc) { setError('Please upload your license disc photo'); return; }
@@ -141,10 +153,12 @@ export default function RiderVerificationScreen({ navigation }) {
     setUploading(true);
     try {
       const uid = user.id;
+      let selfieUrl = verification?.selfie_url;
       let licenseUrl = verification?.license_url;
       let bikeUrl = verification?.bike_url;
       let discUrl = verification?.disc_url;
 
+      if (selfieFile) selfieUrl = await uploadToStorage(selfieFile, `${uid}/selfie`);
       if (licenseFile) licenseUrl = await uploadToStorage(licenseFile, `${uid}/license`);
       if (bikeFile) bikeUrl = await uploadToStorage(bikeFile, `${uid}/bike`);
       if (discFile) discUrl = await uploadToStorage(discFile, `${uid}/disc`);
@@ -153,6 +167,7 @@ export default function RiderVerificationScreen({ navigation }) {
         rider_id: uid,
         rider_name: user.user_metadata?.name || '',
         rider_email: user.email || '',
+        selfie_url: selfieUrl,
         license_url: licenseUrl,
         bike_url: bikeUrl,
         disc_url: discUrl,
@@ -206,6 +221,15 @@ export default function RiderVerificationScreen({ navigation }) {
           </View>
         ) : null}
       </View>
+
+      <UploadCard
+        title="Profile Photo (Selfie)"
+        subtitle="A clear photo of your face — customers will see this"
+        icon="person-circle-outline"
+        preview={selfiePreview || verification?.selfie_url}
+        onPress={pickSelfie}
+        circle
+      />
 
       <UploadCard
         title="Driver's License"
@@ -269,26 +293,53 @@ export default function RiderVerificationScreen({ navigation }) {
   );
 }
 
-function UploadCard({ title, subtitle, icon, preview, onPress }) {
+function UploadCard({ title, subtitle, icon, preview, onPress, circle }) {
   return (
     <View style={s.card}>
       <Text style={s.cardTitle}>{title}</Text>
       <Text style={s.cardSub}>{subtitle}</Text>
-      <TouchableOpacity style={s.uploadZone} onPress={onPress}>
-        {preview ? (
-          <Image source={{ uri: preview }} style={s.previewImg} resizeMode="cover" />
-        ) : (
-          <>
-            <Ionicons name={icon} size={32} color={LIME} />
-            <Text style={s.uploadTxt}>Tap to upload</Text>
-          </>
-        )}
-      </TouchableOpacity>
-      {preview ? (
-        <TouchableOpacity onPress={onPress} style={s.changeBtn}>
-          <Text style={s.changeTxt}>Change photo</Text>
-        </TouchableOpacity>
-      ) : null}
+      {circle ? (
+        // Selfie — circular preview centred in the card
+        <View style={{ alignItems: 'center', marginTop: 12, marginBottom: 4 }}>
+          <TouchableOpacity
+            onPress={onPress}
+            style={[s.selfieZone, preview && s.selfieZoneFilled]}
+            activeOpacity={0.8}
+          >
+            {preview ? (
+              <Image source={{ uri: preview }} style={s.selfieImg} resizeMode="cover" />
+            ) : (
+              <>
+                <Ionicons name={icon} size={48} color={LIME} />
+                <Text style={s.uploadTxt}>Tap to upload</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          {preview ? (
+            <TouchableOpacity onPress={onPress} style={[s.changeBtn, { marginTop: 10 }]}>
+              <Text style={s.changeTxt}>Change photo</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : (
+        <>
+          <TouchableOpacity style={s.uploadZone} onPress={onPress}>
+            {preview ? (
+              <Image source={{ uri: preview }} style={s.previewImg} resizeMode="cover" />
+            ) : (
+              <>
+                <Ionicons name={icon} size={32} color={LIME} />
+                <Text style={s.uploadTxt}>Tap to upload</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          {preview ? (
+            <TouchableOpacity onPress={onPress} style={s.changeBtn}>
+              <Text style={s.changeTxt}>Change photo</Text>
+            </TouchableOpacity>
+          ) : null}
+        </>
+      )}
     </View>
   );
 }
@@ -321,6 +372,14 @@ const s = StyleSheet.create({
     marginTop: 8, overflow: 'hidden',
   },
   previewImg: { width: '100%', height: '100%' },
+  selfieZone: {
+    width: 130, height: 130, borderRadius: 65,
+    borderWidth: 2, borderColor: MUTED, borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+  },
+  selfieZoneFilled: { borderColor: LIME, borderStyle: 'solid' },
+  selfieImg: { width: 130, height: 130, borderRadius: 65 },
   uploadTxt: { color: GREY, fontSize: 13, marginTop: 8 },
   changeBtn: { alignItems: 'center', paddingVertical: 6 },
   changeTxt: { color: LIME, fontSize: 13, fontWeight: '600' },
