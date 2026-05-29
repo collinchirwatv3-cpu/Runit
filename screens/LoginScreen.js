@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 import { signIn } from '../auth';
 
 const LIME = '#c8f000';
@@ -102,9 +103,14 @@ export default function LoginScreen({ navigation }) {
 
       <View style={s.footer}>
         <View style={s.trustRow}>
-          {['🔒 Secure', '🏍️ Local riders', '⚡ Fast delivery'].map((item, i) => (
+          {[
+            { icon: 'shield-checkmark-outline', label: 'Secure' },
+            { icon: 'bicycle',                  label: 'Local riders' },
+            { icon: 'flash-outline',            label: 'Fast delivery' },
+          ].map((item, i) => (
             <View key={i} style={s.trustChip}>
-              <Text style={s.trustTxt}>{item}</Text>
+              <Ionicons name={item.icon} size={11} color={LIME} />
+              <Text style={s.trustTxt}>{item.label}</Text>
             </View>
           ))}
         </View>
@@ -177,6 +183,7 @@ const s = StyleSheet.create({
   footer: { gap: 20 },
   trustRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
   trustChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: '#111',
     borderRadius: 20,
     paddingHorizontal: 10,

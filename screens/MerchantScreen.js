@@ -26,6 +26,26 @@ const RED     = '#ef4444';
 const BASE = 15;
 const RATE = 6.5;
 
+// ─── Package definitions ───────────────────────────────────────────────────
+const PACKAGE_SIZES = [
+  {
+    id:       'small',
+    name:     'Small',
+    icon:     'cube-outline',
+    weight:   'Up to 5 kg',
+    dim:      'Fits in a courier bag',
+    examples: 'Documents · Food · Clothing · Gifts · Small boxes',
+  },
+  {
+    id:       'large',
+    name:     'Large',
+    icon:     'archive-outline',
+    weight:   '5 – 10 kg',
+    dim:      'Max safe load on a bike',
+    examples: 'Shoes · Bulk food · Multi-item orders · Small appliances',
+  },
+];
+
 // ─── Address helpers (same as CustomerScreen) ─────────────────────────────
 async function fetchSuggestions(query) {
   try {
@@ -36,14 +56,31 @@ async function fetchSuggestions(query) {
     const data = await res.json();
     return data.map(item => {
       const a = item.address || {};
-      const landmark = a.amenity || a.tourism || a.shop || a.leisure || a.office;
-      const road = a.road || a.pedestrian || a.footway;
-      const area = a.suburb || a.neighbourhood || a.city_district || a.town || a.city;
-      let label;
-      if (landmark && road) label = `${landmark}, ${road}`;
-      else if (landmark && area) label = `${landmark}, ${area}`;
-      else if (road && area) label = `${road}, ${area}`;
-      else label = item.display_name.split(',').slice(0, 2).join(',').trim();
+      const parts = [];
+
+      // Named place (shop, restaurant, amenity, building, etc.)
+      const place = a.amenity || a.tourism || a.shop || a.leisure || a.office || a.building;
+      if (place) parts.push(place);
+
+      // Street address — include house number when present
+      const road = a.road || a.pedestrian || a.footway || a.path;
+      if (a.house_number && road) parts.push(`${a.house_number} ${road}`);
+      else if (road) parts.push(road);
+
+      // Suburb / neighbourhood
+      const area = a.suburb || a.neighbourhood || a.city_district || a.quarter;
+      if (area) parts.push(area);
+
+      // City fallback only when no suburb info
+      if (!area) {
+        const city = a.town || a.city || a.municipality;
+        if (city) parts.push(city);
+      }
+
+      const label = parts.length > 0
+        ? parts.join(', ')
+        : item.display_name.split(',').slice(0, 3).join(', ').trim();
+
       return { label, lat: parseFloat(item.lat), lon: parseFloat(item.lon) };
     });
   } catch { return []; }
@@ -122,6 +159,7 @@ export default function MerchantScreen({ navigation }) {
   const [dispToSearching,setDispToSearching]= useState(false);
   const [dispPosting,    setDispPosting]    = useState(false);
   const [dispFocused,    setDispFocused]    = useState(null);
+  const [dispToUnit,     setDispToUnit]     = useState('');  // Unit / flat / complex detail
   const dispDebRef = useRef(null);
 
   // ─── Load data on mount ───────────────────────────────────────────────
@@ -239,7 +277,7 @@ export default function MerchantScreen({ navigation }) {
 
   const resetDispatch = () => {
     setDispCustomer(null);
-    setDispTo(''); setDispToCoords(null);
+    setDispTo(''); setDispToCoords(null); setDispToUnit('');
     setDispNotes(''); setDispSize('small');
     setDispPrice(null); setDispEta(null); setDispDist(null);
     setDispToResults([]);
@@ -254,7 +292,7 @@ export default function MerchantScreen({ navigation }) {
     const { error } = await supabase.from('orders').insert([{
       user_id:       userId,
       from_address:  defaultPickup?.label || storeName || 'Store',
-      to_address:    dispTo,
+      to_address:    dispToUnit.trim() ? `${dispToUnit.trim()}, ${dispTo}` : dispTo,
       from_lat:      defaultPickup?.lat || null,
       from_lon:      defaultPickup?.lon || null,
       to_lat:        dispToCoords?.lat || null,
@@ -511,16 +549,27 @@ export default function MerchantScreen({ navigation }) {
                       <Text style={[s.statusTxt, { color: info.color }]}>{info.label}</Text>
                     </View>
                     <Text style={s.orderAddr} numberOfLines={1}>{order.to_address}</Text>
-                    {order.notes ? <Text style={s.orderNotes} numberOfLines={1}>📝 {order.notes}</Text> : null}
+                    {order.notes ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons name="document-text-outline" size={11} color={GREY} />
+                        <Text style={s.orderNotes} numberOfLines={1}>{order.notes}</Text>
+                      </View>
+                    ) : null}
                   </View>
                   <View style={s.orderRight}>
                     <Text style={s.orderPrice}>R{Math.round(order.price)}</Text>
                     {order.rider_name ? (
                       <TouchableOpacity
                         onPress={() => {
-                          const ph = (order.customer_phone || '').replace(/\D/g,'');
-                          const intl = ph.startsWith('0') ? '27' + ph.slice(1) : ph;
-                          if (intl) Linking.openURL(`https://wa.me/${intl}`);
+                          const riderFirst = order.rider_name.split(' ')[0];
+                          const riderPhoneRaw = (order.rider_phone || '').replace(/\D/g,'');
+                          const riderIntl = riderPhoneRaw.startsWith('0') ? '27' + riderPhoneRaw.slice(1) : riderPhoneRaw;
+                          const phoneLabel = riderIntl ? ` (📞 +${riderIntl})` : '';
+                          const msg = encodeURIComponent(
+                            `Hi ${riderFirst}! 👋 This is ${storeName || 'your merchant'} on RunIt. Just checking in on order #${String(order.id).slice(-5)} — how's it going?${phoneLabel}`
+                          );
+                          const target = riderIntl || (order.customer_phone || '').replace(/\D/g,'').replace(/^0/, '27');
+                          if (target) Linking.openURL(`https://wa.me/${target}?text=${msg}`);
                         }}
                         style={s.miniWaBtn}
                       >
@@ -584,7 +633,7 @@ export default function MerchantScreen({ navigation }) {
               <View style={s.addressConfirmed}>
                 <Ionicons name="person" size={14} color={AMBER} />
                 <Text style={s.addressConfirmedTxt} numberOfLines={1}>{dispCustomer.name} — {dispTo}</Text>
-                <TouchableOpacity onPress={() => { setDispCustomer(null); setDispTo(''); setDispToCoords(null); setDispPrice(null); }} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+                <TouchableOpacity onPress={() => { setDispCustomer(null); setDispTo(''); setDispToCoords(null); setDispToUnit(''); setDispPrice(null); }} hitSlop={{top:8,bottom:8,left:8,right:8}}>
                   <Ionicons name="close-circle" size={16} color={MUTED} />
                 </TouchableOpacity>
               </View>
@@ -592,7 +641,7 @@ export default function MerchantScreen({ navigation }) {
               <>
                 <TextInput
                   style={[s.input, dispFocused === 'to' && s.inputFocused]}
-                  placeholder="Search address or customer…"
+                  placeholder="Search street, suburb or business name…"
                   placeholderTextColor={GREY}
                   value={dispTo}
                   onChangeText={handleDispToChange}
@@ -605,10 +654,20 @@ export default function MerchantScreen({ navigation }) {
                     {dispToResults.map((r, i) => (
                       <TouchableOpacity key={i} style={s.dropdownRow} onPress={() => selectDispTo(r)} activeOpacity={0.7}>
                         <Ionicons name="location-outline" size={14} color={LIME} />
-                        <Text style={s.dropdownTxt} numberOfLines={1}>{r.label}</Text>
+                        <Text style={s.dropdownTxt} numberOfLines={2}>{r.label}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
+                )}
+                {/* Unit / flat / complex refinement — shown once a street is selected */}
+                {dispToCoords && (
+                  <TextInput
+                    style={[s.input, { marginTop: 8, borderColor: '#2a2a2a' }]}
+                    placeholder="Unit / Flat / Complex / Floor (optional)"
+                    placeholderTextColor={GREY}
+                    value={dispToUnit}
+                    onChangeText={setDispToUnit}
+                  />
                 )}
                 {/* Saved customer quick picks */}
                 {savedCustomers.length > 0 && !dispTo && (
@@ -631,26 +690,32 @@ export default function MerchantScreen({ navigation }) {
           {/* Package size */}
           <View style={s.fieldCard}>
             <Text style={s.fieldLabel}>PACKAGE SIZE</Text>
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
-              {['small', 'large'].map(sz => (
-                <TouchableOpacity
-                  key={sz}
-                  style={[s.sizeBtn, dispSize === sz && s.sizeBtnActive]}
-                  onPress={() => {
-                    setDispSize(sz);
-                    if (dispPrice && dispDist) {
-                      const p = Math.round((BASE + dispDist * RATE) * (sz === 'large' ? 1.4 : 1));
-                      setDispPrice(p);
-                    }
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name={sz === 'small' ? 'cube-outline' : 'archive-outline'} size={16} color={dispSize === sz ? BG : GREY} />
-                  <Text style={[s.sizeBtnTxt, dispSize === sz && { color: BG }]}>
-                    {sz === 'small' ? 'Small Package' : 'Large Package'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+              {PACKAGE_SIZES.map(sz => {
+                const active = dispSize === sz.id;
+                return (
+                  <TouchableOpacity
+                    key={sz.id}
+                    style={[s.sizeCard, active && s.sizeCardActive]}
+                    onPress={() => {
+                      setDispSize(sz.id);
+                      if (dispPrice && dispDist) {
+                        const p = Math.round((BASE + dispDist * RATE) * (sz.id === 'large' ? 1.4 : 1));
+                        setDispPrice(p);
+                      }
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <View style={[s.sizeIconWrap, active && s.sizeIconWrapActive]}>
+                      <Ionicons name={sz.icon} size={22} color={active ? BG : LIME} />
+                    </View>
+                    <Text style={[s.sizeName, active && { color: BG }]}>{sz.name}</Text>
+                    <Text style={[s.sizeWeight, active && { color: BG }]}>{sz.weight}</Text>
+                    <Text style={[s.sizeDim, active && { color: BG + 'bb' }]}>{sz.dim}</Text>
+                    <Text style={[s.sizeExamples, active && { color: BG + '99' }]}>{sz.examples}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
 
@@ -931,22 +996,37 @@ export default function MerchantScreen({ navigation }) {
                   ) : null}
                   <View style={s.historyMeta}>
                     <Text style={s.historyDate}>{dateStr} · {timeStr}</Text>
-                    {order.rider_name ? <Text style={s.historyRider}>🏍️ {order.rider_name}</Text> : null}
+                    {order.rider_name ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons name="bicycle" size={11} color={GREY} />
+                        <Text style={s.historyRider}>{order.rider_name}</Text>
+                      </View>
+                    ) : null}
                   </View>
-                  {order.notes ? <Text style={s.historyNotes} numberOfLines={1}>📝 {order.notes}</Text> : null}
+                  {order.notes ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Ionicons name="document-text-outline" size={11} color={GREY} />
+                      <Text style={s.historyNotes} numberOfLines={1}>{order.notes}</Text>
+                    </View>
+                  ) : null}
                   {/* Contact rider */}
-                  {order.rider_name && order.customer_phone ? (
+                  {order.rider_name && (order.rider_phone || order.customer_phone) ? (
                     <TouchableOpacity
                       style={s.waRowBtn}
                       onPress={() => {
-                        const ph = order.customer_phone.replace(/\D/g,'');
-                        const intl = ph.startsWith('0') ? '27' + ph.slice(1) : ph;
-                        Linking.openURL(`https://wa.me/${intl}`);
+                        const riderFirst = order.rider_name.split(' ')[0];
+                        const riderPhoneRaw = (order.rider_phone || '').replace(/\D/g,'');
+                        const riderIntl = riderPhoneRaw.startsWith('0') ? '27' + riderPhoneRaw.slice(1) : riderPhoneRaw;
+                        const custPhoneRaw = (order.customer_phone || '').replace(/\D/g,'');
+                        const custIntl = custPhoneRaw.startsWith('0') ? '27' + custPhoneRaw.slice(1) : custPhoneRaw;
+                        const target = riderIntl || custIntl;
+                        const msg = encodeURIComponent(`Hi ${riderFirst}! 👋 This is ${storeName || 'your merchant'} from RunIt — following up on order #${String(order.id).slice(-5)}.`);
+                        if (target) Linking.openURL(`https://wa.me/${target}?text=${msg}`);
                       }}
                       activeOpacity={0.8}
                     >
                       <Ionicons name="logo-whatsapp" size={14} color="#25d366" />
-                      <Text style={s.waRowTxt}>Message customer</Text>
+                      <Text style={s.waRowTxt}>Message rider</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -967,10 +1047,15 @@ function DefaultPickupInput({ userId, onSet }) {
   const [query,    setQuery]    = useState('');
   const [results,  setResults]  = useState([]);
   const [searching,setSearching]= useState(false);
+  const [selected, setSelected] = useState(null);  // geocoded base address
+  const [unitDetail, setUnitDetail] = useState(''); // unit / flat / complex
+  const [saving,   setSaving]   = useState(false);
   const debRef = useRef(null);
 
   const handleChange = (text) => {
     setQuery(text);
+    setSelected(null);
+    setUnitDetail('');
     clearTimeout(debRef.current);
     if (text.length < 2) { setResults([]); setSearching(false); return; }
     setSearching(true);
@@ -981,36 +1066,80 @@ function DefaultPickupInput({ userId, onSet }) {
     }, 350);
   };
 
-  const select = async (sug) => {
-    const dp = { label: sug.label, lat: sug.lat, lon: sug.lon };
-    // Persist to user metadata
-    if (userId) {
-      await supabase.auth.updateUser({ data: { default_pickup: dp } });
-    }
+  const pickSuggestion = (sug) => {
+    setSelected(sug);
+    setQuery(sug.label);
+    setResults([]);
+    setUnitDetail('');
+  };
+
+  const confirm = async () => {
+    if (!selected) return;
+    setSaving(true);
+    const fullLabel = unitDetail.trim()
+      ? `${unitDetail.trim()}, ${selected.label}`
+      : selected.label;
+    const dp = { label: fullLabel, lat: selected.lat, lon: selected.lon };
+    if (userId) await supabase.auth.updateUser({ data: { default_pickup: dp } });
     onSet(dp);
+    setSaving(false);
   };
 
   return (
     <View style={{ marginTop: 8 }}>
+      {/* Street / suburb / business search */}
       <TextInput
-        style={[dp.input]}
-        placeholder="Search your store / default pickup address…"
+        style={dp.input}
+        placeholder="Search street, suburb or business name…"
         placeholderTextColor={GREY}
         value={query}
         onChangeText={handleChange}
+        autoCorrect={false}
       />
       {searching && <ActivityIndicator color={LIME} size="small" style={{ marginTop: 6 }} />}
       {results.length > 0 && (
         <View style={s.dropdownList}>
           {results.map((r, i) => (
-            <TouchableOpacity key={i} style={s.dropdownRow} onPress={() => select(r)} activeOpacity={0.7}>
+            <TouchableOpacity key={i} style={s.dropdownRow} onPress={() => pickSuggestion(r)} activeOpacity={0.7}>
               <Ionicons name="location-outline" size={14} color={LIME} />
-              <Text style={s.dropdownTxt} numberOfLines={1}>{r.label}</Text>
+              <Text style={s.dropdownTxt} numberOfLines={2}>{r.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
       )}
-      <Text style={dp.hint}>This becomes your default pickup address for every dispatch</Text>
+
+      {/* Step 2 — unit / complex refinement + confirm */}
+      {selected && (
+        <View style={dp.refineBox}>
+          <View style={dp.refineRow}>
+            <Ionicons name="checkmark-circle" size={14} color={LIME} style={{ marginTop: 1 }} />
+            <Text style={dp.refineAddr} numberOfLines={2}>{selected.label}</Text>
+          </View>
+          <TextInput
+            style={[dp.input, { marginTop: 10 }]}
+            placeholder="Unit / Flat / Complex / Floor (optional)"
+            placeholderTextColor={GREY}
+            value={unitDetail}
+            onChangeText={setUnitDetail}
+            autoCorrect={false}
+          />
+          <TouchableOpacity style={dp.confirmBtn} onPress={confirm} disabled={saving} activeOpacity={0.8}>
+            {saving
+              ? <ActivityIndicator color={BG} size="small" />
+              : <>
+                  <Ionicons name="pin" size={15} color={BG} />
+                  <Text style={dp.confirmTxt}>Set as pickup address</Text>
+                </>
+            }
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <Text style={dp.hint}>
+        {selected
+          ? 'Add a unit, flat or complex number if needed, then tap Set.'
+          : 'This becomes your default pickup for every dispatch'}
+      </Text>
     </View>
   );
 }
@@ -1022,6 +1151,19 @@ const dp = StyleSheet.create({
     color: '#fff', fontSize: 14, fontWeight: '500',
   },
   hint: { fontSize: 11, color: MUTED, marginTop: 6, lineHeight: 16 },
+  refineBox: {
+    marginTop: 10, backgroundColor: '#161616',
+    borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: '#222',
+  },
+  refineRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  refineAddr: { flex: 1, fontSize: 13, color: '#ccc', fontWeight: '500', lineHeight: 18 },
+  confirmBtn: {
+    marginTop: 12, backgroundColor: LIME,
+    borderRadius: 12, paddingVertical: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+  },
+  confirmTxt: { fontSize: 14, fontWeight: '700', color: BG },
 });
 
 // ─── Styles ───────────────────────────────────────────────────────────────
@@ -1125,9 +1267,21 @@ const s = StyleSheet.create({
   savedCustLabel: { fontSize: 10, color: GREY, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 12, marginBottom: 6 },
   custChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#1e1e1e', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, marginRight: 8, borderWidth: 1, borderColor: '#2a2a2a' },
   custChipTxt: { fontSize: 13, color: '#ddd', fontWeight: '700' },
-  sizeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: SURFACE2, borderRadius: 12, paddingVertical: 12, borderWidth: 1.5, borderColor: MUTED },
-  sizeBtnActive: { backgroundColor: LIME, borderColor: LIME },
-  sizeBtnTxt: { fontSize: 13, fontWeight: '700', color: GREY },
+  sizeCard: {
+    flex: 1, backgroundColor: SURFACE2, borderRadius: 16, padding: 14,
+    borderWidth: 1.5, borderColor: MUTED, gap: 3,
+  },
+  sizeCardActive: { backgroundColor: LIME, borderColor: LIME },
+  sizeIconWrap: {
+    width: 42, height: 42, borderRadius: 11,
+    backgroundColor: '#1e1e1e', alignItems: 'center', justifyContent: 'center',
+    marginBottom: 6,
+  },
+  sizeIconWrapActive: { backgroundColor: 'rgba(0,0,0,0.18)' },
+  sizeName:     { fontSize: 16, fontWeight: '800', color: '#fff' },
+  sizeWeight:   { fontSize: 12, fontWeight: '700', color: LIME, marginTop: 1 },
+  sizeDim:      { fontSize: 11, fontWeight: '500', color: GREY, marginTop: 1 },
+  sizeExamples: { fontSize: 10, color: MUTED, lineHeight: 15, marginTop: 4 },
   priceCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0d1a00', borderRadius: 18, padding: 18, marginBottom: 16, borderWidth: 1, borderColor: LIME + '30' },
   priceLabel:   { fontSize: 10, color: LIME, fontWeight: '700', letterSpacing: 2 },
   priceCurr:    { fontSize: 22, fontWeight: '900', color: GREY },

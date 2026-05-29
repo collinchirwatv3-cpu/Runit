@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 import { signUp } from '../auth';
 
 const LIME = '#c8f000';
@@ -17,9 +18,9 @@ function roleToRoute(role) {
 }
 
 const ROLES = [
-  { id: 'customer', emoji: '📦', label: 'Send a package',   desc: 'Book a motorbike pickup' },
-  { id: 'rider',    emoji: '🏍️', label: 'Ride & earn',      desc: 'Accept deliveries near you' },
-  { id: 'merchant', emoji: '🏪', label: 'Business account', desc: 'Manage store deliveries' },
+  { id: 'customer', icon: 'cube-outline',      label: 'Send a package',   desc: 'Book a motorbike pickup' },
+  { id: 'rider',    icon: 'bicycle',            label: 'Ride & earn',      desc: 'Accept deliveries near you' },
+  { id: 'merchant', icon: 'storefront-outline', label: 'Business account', desc: 'Manage store deliveries' },
 ];
 
 export default function SignupScreen({ navigation }) {
@@ -106,13 +107,15 @@ export default function SignupScreen({ navigation }) {
             onPress={() => setRole(r.id)}
             activeOpacity={0.7}
           >
-            <Text style={s.roleEmoji}>{r.emoji}</Text>
+            <View style={[s.roleIconWrap, role === r.id && s.roleIconWrapOn]}>
+              <Ionicons name={r.icon} size={20} color={role === r.id ? '#080808' : LIME} />
+            </View>
             <View style={s.roleText}>
               <Text style={[s.roleLabel, role === r.id && s.roleLabelOn]}>{r.label}</Text>
               <Text style={s.roleDesc}>{r.desc}</Text>
             </View>
             <View style={[s.check, role === r.id && s.checkOn]}>
-              {role === r.id && <Text style={s.checkMark}>✓</Text>}
+              {role === r.id && <Ionicons name="checkmark" size={12} color="#080808" />}
             </View>
           </TouchableOpacity>
         ))}
@@ -222,7 +225,12 @@ const s = StyleSheet.create({
     borderColor: LIME,
     backgroundColor: 'rgba(200,240,0,0.10)',
   },
-  roleEmoji: { fontSize: 24 },
+  roleIconWrap: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: '#1a1a1a',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  roleIconWrapOn: { backgroundColor: LIME },
   roleText: { flex: 1 },
   roleLabel: { fontSize: 15, fontWeight: '800', color: '#aaa', marginBottom: 2 },
   roleLabelOn: { color: '#fff' },

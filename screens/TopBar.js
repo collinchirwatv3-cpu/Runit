@@ -17,7 +17,7 @@ export function getSmartGreeting(user) {
 
   if (isNewUser) {
     _updateLastSeen();
-    return `Welcome, ${firstName}! 🏍️`;
+    return `Welcome, ${firstName}!`;
   }
 
   // Long absence — 7+ days since last open

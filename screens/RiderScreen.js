@@ -79,8 +79,9 @@ function JobBanner({ job, onAccept, onDismiss }) {
           <View style={jb.topRow}>
             <View style={jb.badge}><Text style={jb.badgeTxt}>NEW JOB</Text></View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={jb.sizeBadge}>
-                <Text style={jb.sizeTxt}>{job.size === 'large' ? '📫 Large' : '📦 Small'}</Text>
+              <View style={[jb.sizeBadge, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                <Ionicons name={job.size === 'large' ? 'archive-outline' : 'cube-outline'} size={11} color={GREY} />
+                <Text style={jb.sizeTxt}>{job.size === 'large' ? 'Large' : 'Small'}</Text>
               </View>
               <TouchableOpacity style={jb.closeBtn} onPress={() => slideOut(onDismiss)} activeOpacity={0.7}>
                 <Ionicons name="close" size={18} color={GREY} />
@@ -272,7 +273,10 @@ function SOSButton({ activeJob, onBreakdown }) {
                   </TouchableOpacity>
                 ))}
 
-                <Text style={sos.note}>🔒  112 works even without airtime or signal</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="shield-checkmark-outline" size={13} color="#555" />
+                  <Text style={sos.note}>112 works even without airtime or signal</Text>
+                </View>
 
                 <TouchableOpacity style={sos.closeBtn} onPress={close} activeOpacity={0.85}>
                   <Text style={sos.closeBtnTxt}>Close</Text>
@@ -384,7 +388,7 @@ function calcBearing(a,b){
 }
 function maneuverArrow(type,mod){
   if(!type||type==='depart'||type==='new name')return'↑';
-  if(type==='arrive')return'📍';
+  if(type==='arrive')return'⬤';
   if(type==='roundabout'||type==='rotary')return'↻';
   if(!mod)return'↑';
   if(mod.includes('sharp right'))return'↱';
@@ -640,19 +644,94 @@ const rq = StyleSheet.create({
   sentSub:    { fontSize: 12, color: GREY, marginTop: 2 },
 });
 
-// SA banks with standard branch codes
+// SA banks — branch codes + brand colours + PayShap support flag
 const SA_BANKS = [
-  { name: 'ABSA',           branch: '632005' },
-  { name: 'Standard Bank',  branch: '051001' },
-  { name: 'FNB',            branch: '250655' },
-  { name: 'Nedbank',        branch: '198765' },
-  { name: 'Capitec Bank',   branch: '470010' },
-  { name: 'African Bank',   branch: '430000' },
-  { name: 'Discovery Bank', branch: '679000' },
-  { name: 'TymeBank',       branch: '678910' },
-  { name: 'Investec Bank',  branch: '580105' },
-  { name: 'Old Mutual Bank',branch: '642005' },
+  { name: 'ABSA',           branch: '632005', color: '#d42e12', payshap: true  },
+  { name: 'Standard Bank',  branch: '051001', color: '#009DE0', payshap: true  },
+  { name: 'FNB',            branch: '250655', color: '#00B4A0', payshap: true  },
+  { name: 'Nedbank',        branch: '198765', color: '#009A44', payshap: true  },
+  { name: 'Capitec Bank',   branch: '470010', color: '#1a4aa8', payshap: true  },
+  { name: 'Investec Bank',  branch: '580105', color: '#1a2c5b', payshap: true  },
+  { name: 'African Bank',   branch: '430000', color: '#E87722', payshap: false },
+  { name: 'Discovery Bank', branch: '679000', color: '#8B1A8B', payshap: false },
+  { name: 'TymeBank',       branch: '678910', color: '#00B2A9', payshap: false },
+  { name: 'Old Mutual Bank',branch: '642005', color: '#006400', payshap: false },
 ];
+
+// ─── PaymentMethodCard (inline component) ────────────────────────────────
+function PaymentMethodCard({ method, onSetDefault, onEdit, onDelete }) {
+  const bank = SA_BANKS.find(b => b.name === method.bank);
+  const accent = method.type === 'instant_pay' ? '#c8f000' : (bank?.color || '#444');
+  const isInstant = method.type === 'instant_pay';
+  return (
+    <View style={[pm.card, { borderLeftColor: accent }]}>
+      <View style={pm.cardTop}>
+        <View style={[pm.iconWrap, { backgroundColor: accent + '22' }]}>
+          <Ionicons name={isInstant ? 'flash' : 'card-outline'} size={20} color={accent} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Text style={pm.bankName}>{isInstant ? 'Instant Pay' : method.bank}</Text>
+            {method.default && (
+              <View style={pm.defaultBadge}>
+                <Text style={pm.defaultTxt}>Default</Text>
+              </View>
+            )}
+            {isInstant && (
+              <View style={pm.instantBadge}>
+                <Ionicons name="flash" size={9} color="#080808" />
+                <Text style={pm.instantTxt}>Same-day</Text>
+              </View>
+            )}
+          </View>
+          {isInstant ? (
+            <Text style={pm.detail}>{method.phone}  ·  {method.bank} (PayShap)</Text>
+          ) : (
+            <>
+              <Text style={pm.detail}>****{(method.account || '').slice(-4)}  ·  {method.accountType}</Text>
+              <Text style={pm.detail}>{method.accountHolder}</Text>
+            </>
+          )}
+        </View>
+      </View>
+      <View style={pm.actions}>
+        {!method.default && (
+          <TouchableOpacity style={pm.actionChip} onPress={onSetDefault}>
+            <Text style={pm.actionChipTxt}>Set default</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={pm.actionIcon} onPress={onEdit}>
+          <Ionicons name="create-outline" size={16} color="#666" />
+        </TouchableOpacity>
+        {!method.default && (
+          <TouchableOpacity style={pm.actionIcon} onPress={onDelete}>
+            <Ionicons name="trash-outline" size={16} color="#ef4444aa" />
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const pm = StyleSheet.create({
+  card: { backgroundColor: '#111', borderRadius: 16, padding: 16, marginBottom: 12, borderLeftWidth: 3 },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12 },
+  iconWrap: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  bankName: { fontSize: 15, fontWeight: '800', color: '#fff' },
+  detail: { fontSize: 12, color: '#777', fontWeight: '500' },
+  defaultBadge: { backgroundColor: '#c8f00020', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  defaultTxt: { fontSize: 10, fontWeight: '700', color: '#c8f000' },
+  instantBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#c8f000', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  instantTxt: { fontSize: 10, fontWeight: '800', color: '#080808' },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'flex-end' },
+  actionChip: { backgroundColor: '#1e1e1e', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: '#333' },
+  actionChipTxt: { fontSize: 11, fontWeight: '600', color: '#aaa' },
+  actionIcon: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a', borderRadius: 8 },
+  typeBtn: { flex: 1, backgroundColor: '#181818', borderRadius: 14, padding: 14, alignItems: 'center', gap: 4, borderWidth: 1.5, borderColor: '#2a2a2a' },
+  typeBtnActive: { backgroundColor: '#c8f000', borderColor: '#c8f000' },
+  typeBtnTxt: { fontSize: 13, fontWeight: '800', color: '#aaa' },
+  typeBtnSub: { fontSize: 10, color: '#555', fontWeight: '500' },
+});
 
 // ─── Main screen ──────────────────────────────────────────────────────────
 
@@ -680,10 +759,13 @@ export default function RiderScreen({ navigation }) {
   const [cashoutForm, setCashoutForm] = useState({ amount: '' });
   const [cashoutLoading, setCashoutLoading] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [bankDetails, setBankDetails] = useState(null);    // null = loading
-  const [showBankDetails, setShowBankDetails] = useState(false);
-  const [bankForm, setBankForm] = useState({ bank: '', accountHolder: '', account: '', branch: '', accountType: 'cheque' });
-  const [bankSaving, setBankSaving] = useState(false);
+  // ── Payment methods ──
+  const [paymentMethods, setPaymentMethods]   = useState([]);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [payFormType, setPayFormType]         = useState('bank_eft'); // 'bank_eft' | 'instant_pay'
+  const [payForm, setPayForm]                 = useState({ bank: '', accountHolder: '', account: '', branch: '', accountType: 'cheque', phone: '' });
+  const [payFormSaving, setPayFormSaving]     = useState(false);
+  const [editingPayId, setEditingPayId]       = useState(null);
   const [discInfo, setDiscInfo] = useState(null); // { expiry: Date, daysLeft: number }
   const [cancelLoading, setCancelLoading] = useState(false);
   const locationIntervalRef = useRef(null);
@@ -712,15 +794,24 @@ export default function RiderScreen({ navigation }) {
       const meta = user?.user_metadata || {};
       setUserName(meta.name || '');
       setGreetingText(getSmartGreeting(user));
-      const bd = {
-        bank: meta.bank_name || '',
-        accountHolder: meta.account_holder || '',
-        account: meta.account_number || '',
-        branch: meta.branch_code || '',
-        accountType: meta.account_type || 'cheque',
-      };
-      setBankDetails(bd);
-      setBankForm(bd);
+      // Load payment methods — migrate legacy flat fields if needed
+      if (Array.isArray(meta.payment_methods) && meta.payment_methods.length > 0) {
+        setPaymentMethods(meta.payment_methods);
+      } else if (meta.bank_name) {
+        const migrated = [{
+          id: 'pm_legacy',
+          type: 'bank_eft',
+          default: true,
+          bank: meta.bank_name,
+          accountHolder: meta.account_holder || '',
+          account: meta.account_number || '',
+          branch: meta.branch_code || '',
+          accountType: meta.account_type || 'cheque',
+        }];
+        setPaymentMethods(migrated);
+        // Persist migrated format
+        supabase.auth.updateUser({ data: { payment_methods: migrated } });
+      }
 
       // Load disc expiry from verification record
       if (uid) {
@@ -811,7 +902,7 @@ export default function RiderScreen({ navigation }) {
           setPinInput('');
           setPinError(false);
           setView('home');
-          showToast('⚠️ This order was cancelled by admin');
+          showToast('This order was cancelled by admin.');
           return;
         }
         if (p.new.status !== 'pending') {
@@ -994,7 +1085,7 @@ export default function RiderScreen({ navigation }) {
     setPinInput('');
     setPinError(false);
     setView('home');
-    showToast('🔧 Breakdown reported — finding another rider for your customer');
+    showToast('Breakdown reported — finding another rider for your customer.');
   };
 
   const handleCancelTrip = async () => {
@@ -1035,9 +1126,10 @@ export default function RiderScreen({ navigation }) {
   const acceptJob = async (job) => {
     const { data: { user } } = await supabase.auth.getUser();
     const riderName = user?.user_metadata?.name || 'Your rider';
+    const riderPhone = user?.user_metadata?.phone || null;
     const { error } = await supabase
       .from('orders')
-      .update({ status: 'on_the_way', rider_id: userId, rider_name: riderName })
+      .update({ status: 'on_the_way', rider_id: userId, rider_name: riderName, rider_phone: riderPhone })
       .eq('id', job.id);
     if (error) { showToast('Failed to accept — try again'); return; }
     _setActiveJob(job);
@@ -1104,55 +1196,86 @@ export default function RiderScreen({ navigation }) {
     else if (tabId === 'settings') navigation.navigate('Settings');
   };
 
-  const saveBankDetails = async () => {
-    if (!bankForm.bank || !bankForm.account || !bankForm.accountHolder) {
-      showToast('Bank name, account holder & number are required'); return;
+  // ── Payment method helpers ────────────────────────────────────────────
+  const savePaymentMethod = async () => {
+    const isInstant = payFormType === 'instant_pay';
+    if (!payForm.bank || !payForm.accountHolder) {
+      showToast('Bank and account holder are required'); return;
     }
-    setBankSaving(true);
-    const { error } = await supabase.auth.updateUser({
-      data: {
-        bank_name: bankForm.bank,
-        account_holder: bankForm.accountHolder,
-        account_number: bankForm.account,
-        branch_code: bankForm.branch,
-        account_type: bankForm.accountType,
-      },
-    });
-    setBankSaving(false);
-    if (error) { showToast('Failed to save — try again'); return; }
-    setBankDetails({ ...bankForm });
-    showToast('Bank details saved ✓');
-    setShowBankDetails(false);
+    if (isInstant && !payForm.phone) { showToast('Phone number is required'); return; }
+    if (!isInstant && !payForm.account) { showToast('Account number is required'); return; }
+
+    setPayFormSaving(true);
+    const id = editingPayId || `pm_${Date.now()}`;
+    const updated = {
+      id, type: payFormType,
+      default: editingPayId
+        ? (paymentMethods.find(m => m.id === editingPayId)?.default ?? false)
+        : paymentMethods.length === 0, // first method becomes default
+      bank: payForm.bank,
+      accountHolder: payForm.accountHolder,
+      ...(isInstant
+        ? { phone: payForm.phone }
+        : { account: payForm.account, branch: payForm.branch, accountType: payForm.accountType }),
+    };
+    const next = editingPayId
+      ? paymentMethods.map(m => m.id === editingPayId ? updated : m)
+      : [...paymentMethods, updated];
+
+    await supabase.auth.updateUser({ data: { payment_methods: next } });
+    setPaymentMethods(next);
+    setPayFormSaving(false);
+    setShowPaymentModal(false);
+    showToast(editingPayId ? 'Payment method updated.' : 'Payment method added.');
+  };
+
+  const deletePaymentMethod = async (id) => {
+    const next = paymentMethods.filter(m => m.id !== id);
+    // If deleted was default, promote first remaining
+    if (next.length > 0 && !next.some(m => m.default)) next[0].default = true;
+    await supabase.auth.updateUser({ data: { payment_methods: next } });
+    setPaymentMethods(next);
+  };
+
+  const setDefaultMethod = async (id) => {
+    const next = paymentMethods.map(m => ({ ...m, default: m.id === id }));
+    await supabase.auth.updateUser({ data: { payment_methods: next } });
+    setPaymentMethods(next);
   };
 
   const submitCashout = async () => {
     const { amount } = cashoutForm;
     if (!amount || isNaN(parseFloat(amount))) { showToast('Enter a valid amount'); return; }
-    if (!bankDetails?.bank || !bankDetails?.account) {
-      showToast('Add your bank details first');
+    const dm = paymentMethods.find(m => m.default) || paymentMethods[0];
+    if (!dm) {
+      showToast('Add a payment method first');
       setShowCashout(false);
-      setShowBankDetails(true);
+      setView('payments');
       return;
     }
     setCashoutLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
+    const bankName = dm.type === 'instant_pay' ? `${dm.bank} (Instant Pay)` : dm.bank;
+    const accountNum = dm.type === 'instant_pay' ? dm.phone : dm.account;
+    const branchCode = dm.type === 'instant_pay' ? '' : (dm.branch || '');
     const { error } = await supabase.from('payout_requests').insert([{
-      rider_id: userId,
-      rider_name: user?.user_metadata?.name || '',
-      rider_email: user?.email || '',
-      amount: parseFloat(amount),
-      bank_name: bankDetails.bank,
-      account_number: bankDetails.account,
-      branch_code: bankDetails.branch,
+      rider_id:       userId,
+      rider_name:     user?.user_metadata?.name || '',
+      rider_email:    user?.email || '',
+      amount:         parseFloat(amount),
+      bank_name:      bankName,
+      account_number: accountNum,
+      branch_code:    branchCode,
     }]);
     setCashoutLoading(false);
     if (error) { showToast('Failed to submit — try again'); return; }
-    showToast('Cashout request submitted!');
+    showToast('Cashout request submitted.');
     setShowCashout(false);
     setCashoutForm({ amount: '' });
   };
 
-  const activeTab = view === 'earnings' ? 'earnings' : view === 'jobs' ? 'jobs' : 'home';
+  const activeTab = (view === 'earnings' || view === 'payments') ? 'earnings' : view === 'jobs' ? 'jobs' : 'home';
+  const defaultPayMethod = paymentMethods.find(m => m.default) || paymentMethods[0] || null;
   const weekAmts = earningsHistory.week;
   const maxAmt = Math.max(...weekAmts, 1); // prevent divide-by-zero when all zeros
 
@@ -1231,7 +1354,7 @@ export default function RiderScreen({ navigation }) {
                 activeOpacity={0.8}
                 onPress={() => {
                   const msg = encodeURIComponent(
-                    `Hi! I'm ${userName} from RunIt 🏍️ I've accepted your delivery and I'm on my way to collect the package. See you soon!`
+                    `Hi! I'm ${userName} from RunIt. I've accepted your delivery and I'm on my way to collect the package. See you soon!`
                   );
                   const phone = activeJob.customerPhone.replace(/\D/g, '');
                   const intl = phone.startsWith('0') ? '27' + phone.slice(1) : phone;
@@ -1403,7 +1526,7 @@ export default function RiderScreen({ navigation }) {
                   return;
                 }
                 if (discInfo && discInfo.daysLeft <= 7) {
-                  showToast(`⚠️ Disc expires in ${discInfo.daysLeft} day${discInfo.daysLeft === 1 ? '' : 's'} — renew soon`);
+                  showToast(`Disc expires in ${discInfo.daysLeft} day${discInfo.daysLeft === 1 ? '' : 's'} — renew soon.`);
                 }
               }
               setOnline(!online);
@@ -1486,7 +1609,7 @@ export default function RiderScreen({ navigation }) {
 
           {online && jobs.length === 0 && (
             <View style={s.emptyState}>
-              <Text style={s.emptyIcon}>🏍️</Text>
+              <Ionicons name="navigate-circle-outline" size={48} color={LIME} style={{ marginBottom: 12 }} />
               <Text style={s.emptyTitle}>Watching for orders…</Text>
               <Text style={s.emptySub}>New jobs will appear here</Text>
             </View>
@@ -1505,7 +1628,7 @@ export default function RiderScreen({ navigation }) {
           <Text style={s.pageTitle}>Orders <Text style={{ color: LIME }}>Near You</Text></Text>
           {jobs.length === 0 && (
             <View style={s.emptyState}>
-              <Text style={s.emptyIcon}>🏍️</Text>
+              <Ionicons name="navigate-circle-outline" size={48} color={LIME} style={{ marginBottom: 12 }} />
               <Text style={s.emptyTitle}>No orders right now</Text>
               <Text style={s.emptySub}>Stay online — orders will appear here</Text>
             </View>
@@ -1523,16 +1646,18 @@ export default function RiderScreen({ navigation }) {
                       </View>
                     )}
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <View style={s.jobMetaChip}>
-                      <Text style={s.jobMetaTxt}>{job.size === 'large' ? '📫 Large' : '📦 Small'}</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                    <View style={[s.jobMetaChip, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                      <Ionicons name={job.size === 'large' ? 'archive-outline' : 'cube-outline'} size={11} color={GREY} />
+                      <Text style={s.jobMetaTxt}>{job.size === 'large' ? 'Large' : 'Small'}</Text>
                     </View>
                     <View style={s.jobMetaChip}>
                       <Text style={s.jobMetaTxt}>{job.km} km · ~{job.time} min</Text>
                     </View>
                     {job.distToPickup != null && (
-                      <View style={[s.jobMetaChip, { borderColor: LIME + '40' }]}>
-                        <Text style={[s.jobMetaTxt, { color: LIME }]}>📍 {job.distToPickup} km from you</Text>
+                      <View style={[s.jobMetaChip, { flexDirection: 'row', alignItems: 'center', gap: 4, borderColor: LIME + '40' }]}>
+                        <Ionicons name="location" size={11} color={LIME} />
+                        <Text style={[s.jobMetaTxt, { color: LIME }]}>{job.distToPickup} km away</Text>
                       </View>
                     )}
                   </View>
@@ -1583,22 +1708,30 @@ export default function RiderScreen({ navigation }) {
             <Text style={s.earnLabel}>TODAY</Text>
             <Text style={s.earnAmt}>R {earnings}</Text>
             <Text style={s.earnSub}>{trips} {trips === 1 ? 'delivery' : 'deliveries'}</Text>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
+            {/* Cash out + payment method row */}
+            <View style={{ flexDirection: 'row', gap: 10, alignItems: 'stretch' }}>
               <TouchableOpacity style={s.cashInstant} onPress={() => setShowCashout(true)}>
-                <Ionicons name="flash" size={15} color={BG} />
+                <Ionicons name="arrow-up-circle" size={15} color={BG} />
                 <Text style={s.cashInstantTxt}>Cash Out</Text>
                 <Text style={s.cashInstantSub}>Request payout</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.cashInstant, { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: bankDetails?.bank ? LIME + '40' : MUTED }]}
-                onPress={() => setShowBankDetails(true)}
+                style={[s.cashInstant, { backgroundColor: '#141414', borderWidth: 1.5, borderColor: defaultPayMethod ? LIME + '35' : MUTED }]}
+                onPress={() => setView('payments')}
+                activeOpacity={0.8}
               >
-                <Ionicons name="card-outline" size={15} color={bankDetails?.bank ? LIME : GREY} />
-                <Text style={[s.cashInstantTxt, { color: bankDetails?.bank ? LIME : GREY }]}>
-                  {bankDetails?.bank || 'Add Bank'}
+                <Ionicons name="card-outline" size={15} color={defaultPayMethod ? LIME : GREY} />
+                <Text style={[s.cashInstantTxt, { color: defaultPayMethod ? LIME : GREY }]} numberOfLines={1}>
+                  {defaultPayMethod
+                    ? (defaultPayMethod.type === 'instant_pay' ? 'Instant Pay' : defaultPayMethod.bank)
+                    : 'Add Method'}
                 </Text>
-                <Text style={[s.cashInstantSub, { color: bankDetails?.bank ? GREY : MUTED }]}>
-                  {bankDetails?.bank ? `****${(bankDetails.account || '').slice(-4)}` : 'Bank details'}
+                <Text style={[s.cashInstantSub, { color: '#555' }]} numberOfLines={1}>
+                  {defaultPayMethod
+                    ? (defaultPayMethod.type === 'instant_pay'
+                        ? defaultPayMethod.phone
+                        : `****${(defaultPayMethod.account || '').slice(-4)}`)
+                    : 'Tap to set up'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1639,11 +1772,76 @@ export default function RiderScreen({ navigation }) {
 
           {deliveryHistory.length === 0 && (
             <View style={s.emptyState}>
-              <Text style={s.emptyIcon}>📦</Text>
+              <Ionicons name="cube-outline" size={48} color={GREY} style={{ marginBottom: 12 }} />
               <Text style={s.emptyTitle}>No deliveries yet</Text>
               <Text style={s.emptySub}>Complete your first run to see history here</Text>
             </View>
           )}
+        </ScrollView>
+      )}
+
+      {/* ── PAYMENT METHODS ── */}
+      {view === 'payments' && (
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          <TouchableOpacity onPress={() => setView('earnings')} style={s.backRow}>
+            <Ionicons name="arrow-back" size={18} color={GREY} />
+            <Text style={s.backTxt}>Back</Text>
+          </TouchableOpacity>
+          <Text style={s.pageTitle}>Payment <Text style={{ color: LIME }}>Methods</Text></Text>
+          <Text style={[s.pageSub, { marginBottom: 20 }]}>
+            Earnings are paid to your default method. Instant Pay settles same-day; EFT takes 1–3 business days.
+          </Text>
+
+          {paymentMethods.length === 0 && (
+            <View style={s.emptyState}>
+              <Ionicons name="card-outline" size={48} color={GREY} style={{ marginBottom: 12 }} />
+              <Text style={s.emptyTitle}>No payment methods yet</Text>
+              <Text style={s.emptySub}>Add a bank account or Instant Pay to start receiving payouts</Text>
+            </View>
+          )}
+
+          {paymentMethods.map(m => (
+            <PaymentMethodCard
+              key={m.id}
+              method={m}
+              onSetDefault={() => setDefaultMethod(m.id)}
+              onEdit={() => {
+                setEditingPayId(m.id);
+                setPayFormType(m.type);
+                setPayForm({
+                  bank: m.bank || '',
+                  accountHolder: m.accountHolder || '',
+                  account: m.account || '',
+                  branch: m.branch || '',
+                  accountType: m.accountType || 'cheque',
+                  phone: m.phone || '',
+                });
+                setShowPaymentModal(true);
+              }}
+              onDelete={() => deletePaymentMethod(m.id)}
+            />
+          ))}
+
+          <TouchableOpacity
+            style={s.addMethodBtn}
+            onPress={() => {
+              setEditingPayId(null);
+              setPayFormType('bank_eft');
+              setPayForm({ bank: '', accountHolder: '', account: '', branch: '', accountType: 'cheque', phone: '' });
+              setShowPaymentModal(true);
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="add-circle-outline" size={20} color={LIME} />
+            <Text style={s.addMethodTxt}>Add payment method</Text>
+          </TouchableOpacity>
+
+          <View style={s.payInfoBox}>
+            <Ionicons name="information-circle-outline" size={14} color={GREY} style={{ marginTop: 1 }} />
+            <Text style={s.payInfoTxt}>
+              Instant Pay uses PayShap and requires your bank to support it. Supported banks: ABSA, Standard Bank, FNB, Nedbank, Capitec, Investec.
+            </Text>
+          </View>
         </ScrollView>
       )}
 
@@ -1741,7 +1939,7 @@ export default function RiderScreen({ navigation }) {
             ))
           ) : (
             <View style={s.emptyState}>
-              <Text style={s.emptyIcon}>📋</Text>
+              <Ionicons name="receipt-outline" size={48} color={GREY} style={{ marginBottom: 12 }} />
               <Text style={s.emptyTitle}>No trips yet</Text>
               <Text style={s.emptySub}>Your completed deliveries will appear here</Text>
             </View>
@@ -1850,22 +2048,33 @@ export default function RiderScreen({ navigation }) {
             <Text style={s.modalTitle}>Request Payout</Text>
             <Text style={s.modalSub}>Available: R {Math.round(earningsHistory.today)}</Text>
 
-            {/* Bank details summary */}
-            {bankDetails?.bank ? (
+            {/* Default payment method summary */}
+            {defaultPayMethod ? (
               <View style={s.bankSummaryCard}>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.bankSummaryBank}>{bankDetails.bank}</Text>
-                  <Text style={s.bankSummaryDetail}>{bankDetails.accountHolder}  •  ****{bankDetails.account.slice(-4)}</Text>
-                  <Text style={s.bankSummaryDetail}>{bankDetails.accountType === 'savings' ? 'Savings' : bankDetails.accountType === 'transmission' ? 'Transmission' : 'Cheque'}  {bankDetails.branch ? `• ${bankDetails.branch}` : ''}</Text>
+                  <Text style={s.bankSummaryBank}>
+                    {defaultPayMethod.type === 'instant_pay' ? `Instant Pay · ${defaultPayMethod.bank}` : defaultPayMethod.bank}
+                  </Text>
+                  <Text style={s.bankSummaryDetail}>
+                    {defaultPayMethod.type === 'instant_pay'
+                      ? defaultPayMethod.phone
+                      : `${defaultPayMethod.accountHolder}  •  ****${(defaultPayMethod.account || '').slice(-4)}`}
+                  </Text>
+                  {defaultPayMethod.type === 'bank_eft' && (
+                    <Text style={s.bankSummaryDetail}>
+                      {defaultPayMethod.accountType === 'savings' ? 'Savings' : defaultPayMethod.accountType === 'transmission' ? 'Transmission' : 'Cheque'}
+                      {defaultPayMethod.branch ? `  •  ${defaultPayMethod.branch}` : ''}
+                    </Text>
+                  )}
                 </View>
-                <TouchableOpacity onPress={() => { setShowCashout(false); setShowBankDetails(true); }}>
-                  <Text style={s.bankEditTxt}>Edit</Text>
+                <TouchableOpacity onPress={() => { setShowCashout(false); setView('payments'); }}>
+                  <Text style={s.bankEditTxt}>Change</Text>
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity style={s.addBankBtn} onPress={() => { setShowCashout(false); setShowBankDetails(true); }}>
+              <TouchableOpacity style={s.addBankBtn} onPress={() => { setShowCashout(false); setView('payments'); }}>
                 <Ionicons name="add-circle-outline" size={18} color={LIME} />
-                <Text style={s.addBankTxt}>Add bank details to enable payout</Text>
+                <Text style={s.addBankTxt}>Add a payment method to enable cashout</Text>
               </TouchableOpacity>
             )}
 
@@ -1899,24 +2108,45 @@ export default function RiderScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* ── Bank Details Modal ── */}
-      <Modal visible={showBankDetails} transparent animationType="slide" onRequestClose={() => setShowBankDetails(false)}>
+      {/* ── Add / Edit Payment Method Modal ── */}
+      <Modal visible={showPaymentModal} transparent animationType="slide" onRequestClose={() => setShowPaymentModal(false)}>
         <View style={s.modalOverlay}>
+          <ScrollView style={{ width: '100%' }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end' }} keyboardShouldPersistTaps="handled">
           <View style={[s.modalSheet, { paddingBottom: 40 }]}>
             <View style={s.modalHandle} />
-            <Text style={s.modalTitle}>Bank Details</Text>
-            <Text style={s.modalSub}>Used for all payout requests</Text>
+            <Text style={s.modalTitle}>{editingPayId ? 'Edit' : 'Add'} Payment Method</Text>
 
-            {/* Bank picker */}
+            {/* Type selector */}
+            {!editingPayId && (
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+                {[
+                  { id: 'bank_eft',    icon: 'card-outline', label: 'Bank EFT',     sub: '1–3 business days' },
+                  { id: 'instant_pay', icon: 'flash',        label: 'Instant Pay',  sub: 'Same-day · PayShap' },
+                ].map(t => (
+                  <TouchableOpacity
+                    key={t.id}
+                    style={[pm.typeBtn, payFormType === t.id && pm.typeBtnActive]}
+                    onPress={() => setPayFormType(t.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name={t.icon} size={18} color={payFormType === t.id ? BG : GREY} />
+                    <Text style={[pm.typeBtnTxt, payFormType === t.id && { color: BG }]}>{t.label}</Text>
+                    <Text style={[pm.typeBtnSub, payFormType === t.id && { color: BG + 'aa' }]}>{t.sub}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Bank picker — EFT shows all, Instant Pay shows PayShap only */}
             <Text style={s.modalFieldLabel}>Bank</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
-              {SA_BANKS.map((b) => (
+              {(payFormType === 'instant_pay' ? SA_BANKS.filter(b => b.payshap) : SA_BANKS).map((b) => (
                 <TouchableOpacity
                   key={b.name}
-                  style={[s.bankChip, bankForm.bank === b.name && s.bankChipActive]}
-                  onPress={() => setBankForm(f => ({ ...f, bank: b.name, branch: b.branch }))}
+                  style={[s.bankChip, payForm.bank === b.name && s.bankChipActive]}
+                  onPress={() => setPayForm(f => ({ ...f, bank: b.name, branch: b.branch }))}
                 >
-                  <Text style={[s.bankChipTxt, bankForm.bank === b.name && s.bankChipTxtActive]}>{b.name}</Text>
+                  <Text style={[s.bankChipTxt, payForm.bank === b.name && s.bankChipTxtActive]}>{b.name}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -1928,68 +2158,84 @@ export default function RiderScreen({ navigation }) {
                 style={s.modalInput}
                 placeholder="Full name as on bank account"
                 placeholderTextColor={GREY}
-                value={bankForm.accountHolder}
-                onChangeText={(v) => setBankForm(f => ({ ...f, accountHolder: v }))}
+                value={payForm.accountHolder}
+                onChangeText={(v) => setPayForm(f => ({ ...f, accountHolder: v }))}
               />
             </View>
 
-            {/* Account number */}
-            <View style={s.modalField}>
-              <Text style={s.modalFieldLabel}>Account Number</Text>
-              <TextInput
-                style={s.modalInput}
-                placeholder="1234567890"
-                placeholderTextColor={GREY}
-                keyboardType="numeric"
-                value={bankForm.account}
-                onChangeText={(v) => setBankForm(f => ({ ...f, account: v }))}
-              />
-            </View>
+            {/* EFT-only fields */}
+            {payFormType === 'bank_eft' && (
+              <>
+                <View style={s.modalField}>
+                  <Text style={s.modalFieldLabel}>Account Number</Text>
+                  <TextInput
+                    style={s.modalInput}
+                    placeholder="1234567890"
+                    placeholderTextColor={GREY}
+                    keyboardType="numeric"
+                    value={payForm.account}
+                    onChangeText={(v) => setPayForm(f => ({ ...f, account: v }))}
+                  />
+                </View>
+                <Text style={s.modalFieldLabel}>Account Type</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+                  {['cheque', 'savings', 'transmission'].map((t) => (
+                    <TouchableOpacity
+                      key={t}
+                      style={[s.bankChip, { flex: 1, justifyContent: 'center' }, payForm.accountType === t && s.bankChipActive]}
+                      onPress={() => setPayForm(f => ({ ...f, accountType: t }))}
+                    >
+                      <Text style={[s.bankChipTxt, payForm.accountType === t && s.bankChipTxtActive]}>
+                        {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={s.modalField}>
+                  <Text style={s.modalFieldLabel}>Branch Code</Text>
+                  <TextInput
+                    style={s.modalInput}
+                    placeholder="Auto-filled when bank is selected"
+                    placeholderTextColor={GREY}
+                    keyboardType="numeric"
+                    value={payForm.branch}
+                    onChangeText={(v) => setPayForm(f => ({ ...f, branch: v }))}
+                  />
+                </View>
+              </>
+            )}
 
-            {/* Account type */}
-            <Text style={s.modalFieldLabel}>Account Type</Text>
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
-              {['cheque', 'savings', 'transmission'].map((t) => (
-                <TouchableOpacity
-                  key={t}
-                  style={[s.bankChip, { flex: 1, justifyContent: 'center' }, bankForm.accountType === t && s.bankChipActive]}
-                  onPress={() => setBankForm(f => ({ ...f, accountType: t }))}
-                >
-                  <Text style={[s.bankChipTxt, bankForm.accountType === t && s.bankChipTxtActive]}>
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Branch code */}
-            <View style={s.modalField}>
-              <Text style={s.modalFieldLabel}>Branch Code</Text>
-              <TextInput
-                style={s.modalInput}
-                placeholder="Auto-filled when bank selected"
-                placeholderTextColor={GREY}
-                keyboardType="numeric"
-                value={bankForm.branch}
-                onChangeText={(v) => setBankForm(f => ({ ...f, branch: v }))}
-              />
-            </View>
+            {/* Instant Pay — phone number field */}
+            {payFormType === 'instant_pay' && (
+              <View style={s.modalField}>
+                <Text style={s.modalFieldLabel}>Phone Number (PayShap ID)</Text>
+                <TextInput
+                  style={s.modalInput}
+                  placeholder="082 123 4567"
+                  placeholderTextColor={GREY}
+                  keyboardType="phone-pad"
+                  value={payForm.phone}
+                  onChangeText={(v) => setPayForm(f => ({ ...f, phone: v }))}
+                />
+              </View>
+            )}
 
             <View style={s.modalActions}>
-              <TouchableOpacity style={s.modalCancelBtn} onPress={() => setShowBankDetails(false)}>
+              <TouchableOpacity style={s.modalCancelBtn} onPress={() => setShowPaymentModal(false)}>
                 <Text style={s.modalCancelTxt}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.modalSubmitBtn, bankSaving && { opacity: 0.6 }]}
-                onPress={saveBankDetails}
-                disabled={bankSaving}
+                style={[s.modalSubmitBtn, payFormSaving && { opacity: 0.6 }]}
+                onPress={savePaymentMethod}
+                disabled={payFormSaving}
               >
-                {bankSaving
+                {payFormSaving
                   ? <ActivityIndicator color={BG} size="small" />
-                  : <Text style={s.modalSubmitTxt}>Save Details</Text>}
+                  : <Text style={s.modalSubmitTxt}>Save</Text>}
               </TouchableOpacity>
             </View>
           </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -2212,7 +2458,12 @@ const s = StyleSheet.create({
 
   backRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 },
   backTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
-  pageTitle: { fontSize: 40, fontWeight: '900', color: '#fff', letterSpacing: -0.5, marginBottom: 20 },
+  pageTitle: { fontSize: 40, fontWeight: '900', color: '#fff', letterSpacing: -0.5, marginBottom: 8 },
+  pageSub: { fontSize: 13, color: GREY, fontWeight: '500', lineHeight: 19, marginBottom: 24 },
+  addMethodBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: SURFACE, borderRadius: 16, padding: 16, marginTop: 4, borderWidth: 1.5, borderColor: LIME + '30', borderStyle: 'dashed' },
+  addMethodTxt: { fontSize: 14, fontWeight: '700', color: LIME },
+  payInfoBox: { flexDirection: 'row', gap: 8, backgroundColor: '#111', borderRadius: 14, padding: 14, marginTop: 16 },
+  payInfoTxt: { flex: 1, fontSize: 12, color: GREY, lineHeight: 17 },
 
   jobCard: { backgroundColor: SURFACE, borderRadius: 20, padding: 18, marginBottom: 10 },
   jobCardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },

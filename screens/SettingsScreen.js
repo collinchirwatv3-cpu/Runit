@@ -253,7 +253,7 @@ function FeedbackSheet({ visible, onClose }) {
           <View style={s.sheetBar} />
           {sent ? (
             <View style={{ alignItems: 'center', paddingVertical: 24 }}>
-              <Text style={{ fontSize: 52, marginBottom: 16 }}>✅</Text>
+              <Ionicons name="checkmark-circle" size={56} color={LIME} style={{ marginBottom: 16 }} />
               <Text style={s.sheetTitle}>Feedback Sent!</Text>
               <Text style={[s.sheetSub, { textAlign: 'center', marginBottom: 28 }]}>
                 We'll review your feedback and get back to you if needed.

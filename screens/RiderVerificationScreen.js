@@ -270,7 +270,7 @@ export default function RiderVerificationScreen({ navigation }) {
           maxLength={7}
         />
         <Text style={s.expiryHint}>
-          🔒 Riders are automatically taken offline when this date passes
+          Riders are automatically taken offline when this date passes
         </Text>
       </View>
 

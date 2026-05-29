@@ -632,7 +632,7 @@ export default function AdminScreen({ navigation }) {
                       <View style={s.avatarCircle}>
                         {v.selfie_url
                           ? <Image source={{ uri: v.selfie_url }} style={s.avatarPhoto} />
-                          : <Text style={{ fontSize: 20 }}>🏍️</Text>}
+                          : <Ionicons name="person-outline" size={20} color="#555" />}
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={s.cardTitle}>{v.rider_name || 'Unnamed'}</Text>
@@ -740,7 +740,7 @@ export default function AdminScreen({ navigation }) {
                       <View style={s.avatarCircle}>
                         {v.selfie_url
                           ? <Image source={{ uri: v.selfie_url }} style={s.avatarPhoto} />
-                          : <Text style={{ fontSize: 20 }}>🏍️</Text>}
+                          : <Ionicons name="person-outline" size={20} color="#555" />}
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={s.cardTitle}>{v.rider_name || 'Unnamed rider'}</Text>
@@ -834,7 +834,7 @@ export default function AdminScreen({ navigation }) {
             : payouts.map(p => (
               <View key={p.id} style={[s.card, { marginBottom: 12 }]}>
                 <View style={s.cardHeader}>
-                  <View style={s.avatarCircle}><Text style={{ fontSize: 20 }}>💸</Text></View>
+                  <View style={s.avatarCircle}><Ionicons name="cash-outline" size={20} color={LIME} /></View>
                   <View style={{ flex: 1 }}>
                     <Text style={s.cardTitle}>{p.rider_name || 'Unknown rider'}</Text>
                     <Text style={s.cardSub}>{p.rider_email || '—'}</Text>
@@ -850,7 +850,10 @@ export default function AdminScreen({ navigation }) {
 
                 <View style={s.docRow}>
                   <View style={[s.docBtn, { backgroundColor: 'transparent', borderStyle: 'dashed' }]}>
-                    <Text style={{ color: GREY, fontSize: 12 }}>🏦 {p.bank_name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Ionicons name="business-outline" size={12} color={GREY} />
+                      <Text style={{ color: GREY, fontSize: 12 }}>{p.bank_name}</Text>
+                    </View>
                   </View>
                   <View style={[s.docBtn, { backgroundColor: 'transparent', borderStyle: 'dashed' }]}>
                     <Text style={{ color: GREY, fontSize: 12 }}>Acc: {p.account_number}</Text>
@@ -899,7 +902,7 @@ export default function AdminScreen({ navigation }) {
             {['all', 'customer', 'rider'].map(r => (
               <TouchableOpacity key={r} style={[fbs.roleChip, feedbackRole === r && fbs.roleChipActive]} onPress={() => setFeedbackRole(r)}>
                 <Text style={[fbs.roleChipTxt, feedbackRole === r && fbs.roleChipTxtActive]}>
-                  {r === 'all' ? 'All' : r === 'customer' ? '🛒 Customers' : '🏍️ Riders'}
+                  {r === 'all' ? 'All' : r === 'customer' ? 'Customers' : 'Riders'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -919,7 +922,7 @@ export default function AdminScreen({ navigation }) {
                 <View key={t.id} style={[s.card, { marginBottom: 12 }]}>
                   <View style={s.cardHeader}>
                     <View style={[s.avatarCircle, { backgroundColor: t.role === 'rider' ? LIME+'20' : BLUE+'20' }]}>
-                      <Text style={{ fontSize: 18 }}>{t.role === 'rider' ? '🏍️' : '🛒'}</Text>
+                      <Ionicons name={t.role === 'rider' ? 'bicycle' : 'person-outline'} size={18} color={t.role === 'rider' ? LIME : BLUE} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={s.cardTitle}>{t.user_name || 'Unknown'}</Text>

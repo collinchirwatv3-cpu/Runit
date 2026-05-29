@@ -130,12 +130,12 @@ L.polyline(routeCoords,{color:'#c8f000',weight:3,opacity:0.85}).addTo(map);
 L.polyline(routeCoords,{color:'#c8f000',weight:8,opacity:0.12}).addTo(map);
 var iconA=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(200,240,0,0.7)"></div>',iconSize:[16,16],iconAnchor:[8,8],className:''});
 var iconB=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(239,68,68,0.6)"></div>',iconSize:[16,16],iconAnchor:[8,8],className:''});
-var iconR=L.divIcon({html:'<div style="font-size:28px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.95)) drop-shadow(0 0 14px rgba(200,240,0,0.55))">🏍️</div>',iconSize:[36,28],iconAnchor:[18,14],className:''});
+var iconR=L.divIcon({html:'<div style="width:20px;height:20px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 2px 10px rgba(0,0,0,0.9),0 0 18px rgba(200,240,0,0.5);"></div>',iconSize:[20,20],iconAnchor:[10,10],className:''});
 L.marker(A,{icon:iconA}).bindTooltip('${fromLabel.replace(/'/g,"\\'")}',{permanent:true,direction:'top',className:'tip',offset:[0,-10]}).addTo(map);
 L.marker(B,{icon:iconB}).bindTooltip('${toLabel.replace(/'/g,"\\'")}',{permanent:true,direction:'bottom',className:'tip',offset:[0,10]}).addTo(map);
 map.fitBounds(L.latLngBounds([A,B]).pad(0.35));
 var riderMarker=null;
-window.updateRider=function(lat,lon){if(riderMarker){var el=riderMarker.getElement();if(el){el.style.transition='transform 4500ms linear';}riderMarker.setLatLng([lat,lon]);}else{riderMarker=L.marker([lat,lon],{icon:iconR}).bindTooltip('On the way 🏍️',{permanent:true,direction:'top',className:'tip',offset:[0,-14]}).addTo(map);}};
+window.updateRider=function(lat,lon){if(riderMarker){var el=riderMarker.getElement();if(el){el.style.transition='transform 4500ms linear';}riderMarker.setLatLng([lat,lon]);}else{riderMarker=L.marker([lat,lon],{icon:iconR}).bindTooltip('On the way',{permanent:true,direction:'top',className:'tip',offset:[0,-14]}).addTo(map);}};
 window.addEventListener('message',function(e){if(e.data&&e.data.type==='updateRider'){window.updateRider(e.data.lat,e.data.lon);}});
 </script></body></html>`;
 }
@@ -865,7 +865,7 @@ export default function CustomerScreen({ navigation }) {
     if (!activeOrderId || amt <= 0) { setTipSubmitted(true); return; }
     await supabase.from('orders').update({ tip: amt }).eq('id', activeOrderId);
     setTipSubmitted(true);
-    showToast(`R${amt} tip sent — thank you! 🙏`);
+    showToast(`R${amt} tip sent — thank you!`);
   };
 
   const submitRating = async (stars) => {
@@ -894,7 +894,7 @@ export default function CustomerScreen({ navigation }) {
           const rid  = payload.new.rider_id   || null;
           setRiderName(name);
           setRiderId(rid);
-          showToast(name ? `🏍️  ${name} is coming to collect your parcel!` : '🏍️  Rider is on the way!');
+          showToast(name ? `${name} is on the way to collect your parcel.` : 'Your rider is on the way.');
           subscribeRiderLocation(orderId);
           // Fetch rider's selfie photo + average rating in parallel
           if (rid) {
@@ -930,7 +930,7 @@ export default function CustomerScreen({ navigation }) {
           setRiderId(null);
           showToast('Your rider cancelled — finding a new one...');
         }
-        if (newStatus === 'delivered') showToast('Delivered! 🎉');
+        if (newStatus === 'delivered') showToast('Package delivered successfully.');
         if (newStatus === 'cancelled') {
           orderSubRef.current?.unsubscribe(); orderSubRef.current = null;
           riderLocSubRef.current?.unsubscribe(); riderLocSubRef.current = null;
@@ -1202,8 +1202,8 @@ export default function CustomerScreen({ navigation }) {
           <Text style={s.sectionLabel}>Package Size</Text>
           <View style={s.sizeRow}>
             {[
-              { id: 'small', icon: '📦', name: 'Small',  hint: 'Fits in a backpack' },
-              { id: 'large', icon: '📫', name: 'Larger', hint: 'Box or bag' },
+              { id: 'small', icon: 'cube-outline',    name: 'Small',  hint: 'Up to 5 kg · fits in a bag' },
+              { id: 'large', icon: 'archive-outline',  name: 'Large',  hint: '5–10 kg · bulky or multi-item' },
             ].map(sz => (
               <TouchableOpacity
                 key={sz.id}
@@ -1211,10 +1211,10 @@ export default function CustomerScreen({ navigation }) {
                 onPress={() => { const s2 = sz.id; setPackageSize(s2); if (fromCoords && toCoords) calcRouteWithCoords(fromCoords, toCoords, s2); }}
                 activeOpacity={0.75}
               >
-                <Text style={s.sizeIcon}>{sz.icon}</Text>
+                <Ionicons name={sz.icon} size={26} color={packageSize === sz.id ? LIME : '#555'} style={{ marginBottom: 8 }} />
                 <Text style={[s.sizeName, packageSize === sz.id && { color: '#fff' }]}>{sz.name}</Text>
                 <Text style={s.sizeHint}>{sz.hint}</Text>
-                {packageSize === sz.id && <View style={s.sizeCheck}><Text style={s.sizeCheckMark}>✓</Text></View>}
+                {packageSize === sz.id && <View style={s.sizeCheck}><Ionicons name="checkmark" size={10} color={BG} /></View>}
               </TouchableOpacity>
             ))}
           </View>
@@ -1259,7 +1259,7 @@ export default function CustomerScreen({ navigation }) {
             activeOpacity={0.85}
           >
             <Text style={s.primaryBtnTxt}>
-              {loading ? 'Redirecting to payment…' : price ? `Confirm & Pay  R${price}` : '🏍️  Send Now'}
+              {loading ? 'Redirecting to payment…' : price ? `Confirm & Pay  R${price}` : 'Send Now'}
             </Text>
           </TouchableOpacity>
         </ScrollView>
@@ -1318,7 +1318,7 @@ export default function CustomerScreen({ navigation }) {
               ) : onTheWay && eta ? (
                 <><Text style={s.trackEta}>{eta}</Text><Text style={s.trackEtaUnit}>est. min</Text></>
               ) : (
-                <Text style={{ fontSize: 36 }}>🏍️</Text>
+                <Ionicons name="navigate-circle" size={42} color={LIME} />
               )}
             </View>
           </View>
@@ -1402,7 +1402,7 @@ export default function CustomerScreen({ navigation }) {
                     {riderName.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')}
                   </Text>
                 ) : (
-                  <Text style={s.driverAvatarTxt}>🏍</Text>
+                  <Ionicons name="navigate-circle-outline" size={24} color={LIME} />
                 )}
               </View>
               <View style={s.driverInfo}>
@@ -1615,7 +1615,6 @@ const s = StyleSheet.create({
   sizeRow: { flexDirection: 'row', gap: 10, marginBottom: 24 },
   sizeCard: { flex: 1, backgroundColor: SURFACE, borderRadius: 18, padding: 16, alignItems: 'center', borderWidth: 1.5, borderColor: '#1a1a1a', position: 'relative' },
   sizeCardOn: { borderColor: LIME, backgroundColor: 'rgba(200,240,0,0.06)' },
-  sizeIcon: { fontSize: 28, marginBottom: 8 },
   sizeName: { fontSize: 14, fontWeight: '800', color: '#777', marginBottom: 3 },
   sizeHint: { fontSize: 11, color: MUTED, textAlign: 'center' },
   sizeCheck: { position: 'absolute', top: 10, right: 10, width: 18, height: 18, borderRadius: 9, backgroundColor: LIME, alignItems: 'center', justifyContent: 'center' },
