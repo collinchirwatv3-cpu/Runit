@@ -19,6 +19,10 @@ const GREY = '#777';
 const GREEN = '#22c55e';
 const AMBER = '#f59e0b';
 
+// ─── Swipe-up sheet heights ───────────────────────────────────────────────
+const SHEET_COLLAPSED = 68;   // pill + destination peek
+const SHEET_EXPANDED  = 490;  // full details visible
+
 // ─── Alert: vibration + web audio beep ───────────────────────────────────
 
 function playAlert() {
@@ -775,6 +779,13 @@ export default function RiderScreen({ navigation }) {
   const riderTripMapRef = useRef(null);  // iframe/WebView ref for active-trip map
   const activeJobRef = useRef(null);     // mirror of activeJob for subscription closures
 
+  // ── Swipe-up sheet ──────────────────────────────────────────────────────
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+  const sheetExpandedRef = useRef(false);  // mirror for responder closures
+  const sheetAnim = useRef(new Animated.Value(0)).current;
+  const sheetDragStart = useRef(null);
+  const sheetDragBase  = useRef(0);
+
   const sendToRiderMap = (msg) => {
     const el = riderTripMapRef.current;
     if (!el) return;
@@ -987,6 +998,17 @@ export default function RiderScreen({ navigation }) {
     setTimeout(() => setToastMsg(''), 3500);
   };
 
+  const expandSheet = () => {
+    sheetExpandedRef.current = true;
+    setSheetExpanded(true);
+    Animated.spring(sheetAnim, { toValue: 1, tension: 72, friction: 13, useNativeDriver: false }).start();
+  };
+  const collapseSheet = () => {
+    sheetExpandedRef.current = false;
+    setSheetExpanded(false);
+    Animated.spring(sheetAnim, { toValue: 0, tension: 72, friction: 13, useNativeDriver: false }).start();
+  };
+
   const loadEarnings = async (uid) => {
     const id = uid || userId;
     if (!id) return;
@@ -1136,6 +1158,7 @@ export default function RiderScreen({ navigation }) {
     setJobs(p => p.filter(j => j.id !== job.id));
     setPinInput('');
     setPinError(false);
+    collapseSheet();
     startLocationBroadcast(job);
     setView('active');
     // Notify customer their rider is on the way
@@ -1296,113 +1319,169 @@ export default function RiderScreen({ navigation }) {
         />
       )}
 
-      {/* ── ACTIVE DELIVERY (full-screen map) ── */}
-      {view === 'active' && activeJob && (
-        <View style={s.tripScreen}>
-          {/* Map — fills almost all screen */}
-          <View style={s.tripMapArea}>
-            <RiderTripMap
-              iframeRef={riderTripMapRef}
-              initRider={riderLocRef.current}
-              fromCoords={activeJob.fromLat ? { lat: activeJob.fromLat, lon: activeJob.fromLon } : null}
-              toCoords={activeJob.toLat ? { lat: activeJob.toLat, lon: activeJob.toLon } : null}
-            />
-            {/* Floating payout chip */}
-            <View style={s.tripPayChip}>
-              <Text style={s.tripPayChipAmt}>R {activeJob.pay}</Text>
-              <Text style={s.tripPayChipMeta}>{activeJob.km} km · ~{activeJob.time} min</Text>
-            </View>
-            {/* Floating "EN ROUTE" label */}
-            <View style={s.tripStatusChip}>
-              <View style={s.tripStatusDot} />
-              <Text style={s.tripStatusTxt}>EN ROUTE</Text>
-            </View>
-          </View>
+      {/* ── ACTIVE DELIVERY (full-screen map + swipe-up pill) ── */}
+      {view === 'active' && activeJob && (() => {
+        const sheetHeight = sheetAnim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [SHEET_COLLAPSED, SHEET_EXPANDED],
+          extrapolate: 'clamp',
+        });
+        return (
+          <View style={s.tripScreen}>
 
-          {/* Bottom sheet */}
-          <View style={s.tripSheet}>
-            {/* Route */}
-            <View style={s.tripRouteBlock}>
-              <View style={s.tripStop}>
-                <View style={[s.tripDot, { backgroundColor: LIME }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.tripStopLbl}>COLLECTING FROM</Text>
-                  <Text style={s.tripStopAddr} numberOfLines={1}>{activeJob.from}</Text>
-                </View>
+            {/* ── Map: fills the entire tripScreen ── */}
+            <View style={s.tripMapArea}>
+              <RiderTripMap
+                iframeRef={riderTripMapRef}
+                initRider={riderLocRef.current}
+                fromCoords={activeJob.fromLat ? { lat: activeJob.fromLat, lon: activeJob.fromLon } : null}
+                toCoords={activeJob.toLat ? { lat: activeJob.toLat, lon: activeJob.toLon } : null}
+              />
+              {/* Floating payout chip */}
+              <View style={s.tripPayChip}>
+                <Text style={s.tripPayChipAmt}>R {activeJob.pay}</Text>
+                <Text style={s.tripPayChipMeta}>{activeJob.km} km · ~{activeJob.time} min</Text>
               </View>
-              <View style={s.tripConnector} />
-              <View style={s.tripStop}>
-                <View style={[s.tripDot, { backgroundColor: '#ef4444' }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.tripStopLbl}>DELIVERING TO</Text>
-                  <Text style={s.tripStopAddr} numberOfLines={1}>{activeJob.to}</Text>
-                </View>
+              {/* Floating EN ROUTE chip */}
+              <View style={s.tripStatusChip}>
+                <View style={s.tripStatusDot} />
+                <Text style={s.tripStatusTxt}>EN ROUTE</Text>
               </View>
             </View>
 
-            {activeJob.notes ? (
-              <View style={s.tripNotesRow}>
-                <Ionicons name="chatbubble-outline" size={13} color={LIME} />
-                <Text style={s.tripNotesTxt} numberOfLines={2}>{activeJob.notes}</Text>
-              </View>
-            ) : null}
+            {/* ── Swipe-up sheet ── */}
+            <Animated.View style={[s.tripSheet, { height: sheetHeight }]}>
 
-            {/* WhatsApp customer */}
-            {activeJob.customerPhone ? (
-              <TouchableOpacity
-                style={s.waBtn}
-                activeOpacity={0.8}
-                onPress={() => {
-                  const msg = encodeURIComponent(
-                    `Hi! I'm ${userName} from RunIt. I've accepted your delivery and I'm on my way to collect the package. See you soon!`
-                  );
-                  const phone = activeJob.customerPhone.replace(/\D/g, '');
-                  const intl = phone.startsWith('0') ? '27' + phone.slice(1) : phone;
-                  Linking.openURL(`https://wa.me/${intl}?text=${msg}`);
+              {/* ─ Drag handle zone ─ */}
+              <View
+                style={s.tripSheetHandle}
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+                onResponderGrant={(e) => {
+                  sheetDragStart.current = e.nativeEvent.pageY;
+                  sheetDragBase.current  = sheetExpandedRef.current ? SHEET_EXPANDED : SHEET_COLLAPSED;
+                }}
+                onResponderMove={(e) => {
+                  const dy   = sheetDragStart.current - e.nativeEvent.pageY; // +ve = swipe up
+                  const next = Math.max(SHEET_COLLAPSED, Math.min(SHEET_EXPANDED, sheetDragBase.current + dy));
+                  sheetAnim.setValue((next - SHEET_COLLAPSED) / (SHEET_EXPANDED - SHEET_COLLAPSED));
+                }}
+                onResponderRelease={(e) => {
+                  const dy = sheetDragStart.current - e.nativeEvent.pageY;
+                  if      (dy >  28) expandSheet();
+                  else if (dy < -28) collapseSheet();
+                  else               sheetExpandedRef.current ? collapseSheet() : expandSheet();
                 }}
               >
-                <Ionicons name="logo-whatsapp" size={17} color="#fff" />
-                <Text style={s.waBtnTxt}>Message customer on WhatsApp</Text>
-              </TouchableOpacity>
-            ) : null}
+                {/* Pill bar */}
+                <View style={s.tripPillBar} />
+                {/* Destination peek — always visible */}
+                <View style={s.tripSheetPeek}>
+                  <View style={[s.tripDot, { backgroundColor: '#ef4444', flexShrink: 0 }]} />
+                  <Text style={s.tripSheetPeekAddr} numberOfLines={1}>{activeJob.to}</Text>
+                  <Ionicons
+                    name={sheetExpanded ? 'chevron-down' : 'chevron-up'}
+                    size={16}
+                    color={GREY}
+                  />
+                </View>
+              </View>
 
-            {/* PIN entry */}
-            <View style={s.tripPinRow}>
-              <Text style={s.tripPinLbl}>RECIPIENT PIN</Text>
-              <TouchableOpacity style={s.pinBoxRow} onPress={() => pinInputRef.current?.focus()} activeOpacity={1}>
-                {[0, 1, 2].map(i => (
-                  <View key={i} style={[s.pinBox, pinInput.length === i && s.pinBoxActive, pinError && s.pinBoxError]}>
-                    <Text style={[s.pinDigit, pinError && { color: '#ef4444' }]}>{pinInput[i] || ''}</Text>
+              {/* ─ Scrollable detail content ─ */}
+              <ScrollView
+                style={s.tripSheetScroll}
+                contentContainerStyle={s.tripSheetScrollContent}
+                showsVerticalScrollIndicator={false}
+                scrollEnabled={sheetExpanded}
+                bounces={false}
+                keyboardShouldPersistTaps="always"
+              >
+                {/* Full route */}
+                <View style={s.tripRouteBlock}>
+                  <View style={s.tripStop}>
+                    <View style={[s.tripDot, { backgroundColor: LIME }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.tripStopLbl}>COLLECTING FROM</Text>
+                      <Text style={s.tripStopAddr} numberOfLines={1}>{activeJob.from}</Text>
+                    </View>
                   </View>
-                ))}
-              </TouchableOpacity>
-              <TextInput
-                ref={pinInputRef}
-                style={s.pinHiddenInput}
-                value={pinInput}
-                onChangeText={v => { setPinInput(v.replace(/\D/g, '').slice(0, 3)); setPinError(false); }}
-                keyboardType="numeric"
-                maxLength={3}
-              />
-              {pinError && <Text style={s.pinErrorTxt}>Incorrect PIN — try again</Text>}
-            </View>
+                  <View style={s.tripConnector} />
+                  <View style={s.tripStop}>
+                    <View style={[s.tripDot, { backgroundColor: '#ef4444' }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.tripStopLbl}>DELIVERING TO</Text>
+                      <Text style={s.tripStopAddr} numberOfLines={1}>{activeJob.to}</Text>
+                    </View>
+                  </View>
+                </View>
 
-            <TouchableOpacity
-              style={[s.deliveredBtn, pinInput.length < 3 && { opacity: 0.4 }]}
-              onPress={confirmDelivery}
-              disabled={pinInput.length < 3}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="checkmark-circle-outline" size={20} color={BG} />
-              <Text style={s.deliveredBtnTxt}>Confirm Delivery</Text>
-            </TouchableOpacity>
+                {activeJob.notes ? (
+                  <View style={s.tripNotesRow}>
+                    <Ionicons name="chatbubble-outline" size={13} color={LIME} />
+                    <Text style={s.tripNotesTxt} numberOfLines={2}>{activeJob.notes}</Text>
+                  </View>
+                ) : null}
 
-            <TouchableOpacity style={s.backToHomeBtn} onPress={() => setShowCancelConfirm(true)} activeOpacity={0.7}>
-              <Text style={s.backToHomeTxt}>Cancel trip</Text>
-            </TouchableOpacity>
+                {/* WhatsApp customer */}
+                {activeJob.customerPhone ? (
+                  <TouchableOpacity
+                    style={s.waBtn}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      const msg = encodeURIComponent(
+                        `Hi! I'm ${userName} from RunIt. I've accepted your delivery and I'm on my way to collect the package. See you soon!`
+                      );
+                      const phone = activeJob.customerPhone.replace(/\D/g, '');
+                      const intl  = phone.startsWith('0') ? '27' + phone.slice(1) : phone;
+                      Linking.openURL(`https://wa.me/${intl}?text=${msg}`);
+                    }}
+                  >
+                    <Ionicons name="logo-whatsapp" size={17} color="#fff" />
+                    <Text style={s.waBtnTxt}>Message customer on WhatsApp</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {/* PIN entry */}
+                <View style={s.tripPinRow}>
+                  <Text style={s.tripPinLbl}>RECIPIENT PIN</Text>
+                  <TouchableOpacity style={s.pinBoxRow} onPress={() => pinInputRef.current?.focus()} activeOpacity={1}>
+                    {[0, 1, 2].map(i => (
+                      <View key={i} style={[s.pinBox, pinInput.length === i && s.pinBoxActive, pinError && s.pinBoxError]}>
+                        <Text style={[s.pinDigit, pinError && { color: '#ef4444' }]}>{pinInput[i] || ''}</Text>
+                      </View>
+                    ))}
+                  </TouchableOpacity>
+                  <TextInput
+                    ref={pinInputRef}
+                    style={s.pinHiddenInput}
+                    value={pinInput}
+                    onChangeText={v => { setPinInput(v.replace(/\D/g, '').slice(0, 3)); setPinError(false); }}
+                    keyboardType="numeric"
+                    maxLength={3}
+                  />
+                  {pinError && <Text style={s.pinErrorTxt}>Incorrect PIN — try again</Text>}
+                </View>
+
+                <TouchableOpacity
+                  style={[s.deliveredBtn, pinInput.length < 3 && { opacity: 0.4 }]}
+                  onPress={confirmDelivery}
+                  disabled={pinInput.length < 3}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={20} color={BG} />
+                  <Text style={s.deliveredBtnTxt}>Confirm Delivery</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={s.backToHomeBtn} onPress={() => setShowCancelConfirm(true)} activeOpacity={0.7}>
+                  <Text style={s.backToHomeTxt}>Cancel trip</Text>
+                </TouchableOpacity>
+              </ScrollView>
+
+            </Animated.View>
+
           </View>
-        </View>
-      )}
+        );
+      })()}
 
       {/* ── DELIVERY SUMMARY ── */}
       {view === 'summary' && completedJob && (
@@ -2498,8 +2577,8 @@ const s = StyleSheet.create({
   skipBtnTxt: { fontSize: 14, fontWeight: '700', color: GREY },
 
   // Full-screen active delivery (trip map view)
-  tripScreen: { flex: 1 },
-  tripMapArea: { flex: 1, position: 'relative' },
+  tripScreen:  { flex: 1, position: 'relative' },
+  tripMapArea: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   tripPayChip: {
     position: 'absolute', top: 14, left: 14, zIndex: 10,
     backgroundColor: 'rgba(8,8,8,0.85)', borderRadius: 16,
@@ -2516,11 +2595,36 @@ const s = StyleSheet.create({
   },
   tripStatusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: LIME },
   tripStatusTxt: { fontSize: 10, fontWeight: '800', color: LIME, letterSpacing: 2 },
+
+  // Swipe-up sheet (anchored to bottom, animates height)
   tripSheet: {
-    backgroundColor: SURFACE, borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    paddingHorizontal: 22, paddingTop: 18, paddingBottom: 28,
-    borderTopWidth: 1, borderColor: '#1a1a1a',
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: '#111',
+    borderTopLeftRadius: 26, borderTopRightRadius: 26,
+    borderTopWidth: 1, borderColor: '#1e1e1e',
+    overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.45, shadowRadius: 20, elevation: 20,
+    zIndex: 50,
   },
+  tripSheetHandle: {
+    paddingTop: 10, paddingBottom: 6, paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  tripPillBar: {
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: '#333', alignSelf: 'center', marginBottom: 10,
+  },
+  tripSheetPeek: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingBottom: 8,
+  },
+  tripSheetPeekAddr: {
+    flex: 1, fontSize: 14, fontWeight: '700', color: '#ddd',
+  },
+  tripSheetScroll:       { flex: 1 },
+  tripSheetScrollContent:{ paddingHorizontal: 20, paddingBottom: 32 },
+
   tripRouteBlock: { marginBottom: 10 },
   tripStop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   tripDot: { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
