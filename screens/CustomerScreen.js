@@ -1270,10 +1270,11 @@ export default function CustomerScreen({ navigation }) {
   // ── TRACKING ──────────────────────────────────────────────────────────
   if (screen === 'tracking') {
     const awaitingPayment = orderStatus === 'awaiting_payment';
+    const isScheduled = orderStatus === 'scheduled';
     const finding   = orderStatus === 'pending';
     const onTheWay  = orderStatus === 'on_the_way';
     const delivered = orderStatus === 'delivered';
-    const statusLabel = awaitingPayment ? 'Confirming Payment' : finding ? 'Finding Rider' : onTheWay ? 'On the Way' : 'Delivered';
+    const statusLabel = isScheduled ? 'Scheduled' : awaitingPayment ? 'Confirming Payment' : finding ? 'Finding Rider' : onTheWay ? 'On the Way' : 'Delivered';
 
     return (
       <View style={s.container}>
@@ -1381,6 +1382,17 @@ export default function CustomerScreen({ navigation }) {
           )}
 
           {/* Status card */}
+          {isScheduled && (
+            <View style={[s.driverCard, { width: '100%', borderColor: '#3b82f630', borderWidth: 1 }]}>
+              <View style={[s.driverAvatar, { backgroundColor: '#3b82f620' }]}>
+                <Ionicons name="moon-outline" size={22} color="#3b82f6" />
+              </View>
+              <View style={s.driverInfo}>
+                <Text style={s.driverName}>Order Scheduled</Text>
+                <Text style={s.driverBike}>Will dispatch at the merchant's next opening time</Text>
+              </View>
+            </View>
+          )}
           {finding && (
             <View style={[s.driverCard, { width: '100%' }]}>
               <View style={[s.driverAvatar, { backgroundColor: SURFACE2 }]}>
@@ -1512,7 +1524,7 @@ export default function CustomerScreen({ navigation }) {
 
           {/* Actions */}
           <View style={{ width: '100%', paddingBottom: 20 }}>
-            {!delivered && finding && (
+            {!delivered && (finding || isScheduled) && (
               <TouchableOpacity onPress={cancelOrder} style={s.cancelBtn}>
                 <Text style={s.cancelTxt}>Cancel Order</Text>
               </TouchableOpacity>

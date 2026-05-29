@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput,
-  ActivityIndicator, Linking, Platform,
+  ActivityIndicator, Linking, Platform, Switch,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -102,12 +102,109 @@ async function getRoute(a, b) {
 // ─── Status config ────────────────────────────────────────────────────────
 const STATUS = {
   pending:         { label: 'Finding Rider',  color: AMBER  },
+  scheduled:       { label: 'Scheduled',      color: BLUE   },
   awaiting_payment:{ label: 'Awaiting Pay',   color: BLUE   },
   on_the_way:      { label: 'On the Way',     color: LIME   },
   delivered:       { label: 'Delivered',      color: GREEN  },
   cancelled:       { label: 'Failed',         color: RED    },
 };
 function si(status) { return STATUS[status] || STATUS.pending; }
+
+// ─── Operating hours helpers ──────────────────────────────────────────────
+const DAY_LABELS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+const DEFAULT_HOURS = DAY_LABELS.map((label, dow) => ({
+  day_of_week: dow,
+  label,
+  is_open:    dow >= 1 && dow <= 5,          // Mon–Fri open by default
+  open_time:  '08:00',
+  close_time: dow === 6 ? '13:00' : '17:00', // Sat half-day
+}));
+
+function getNextOpeningTime(hours) {
+  // Returns Date of next opening, or null if merchant is open right now.
+  if (!hours || hours.length === 0) return null; // no hours = always open
+  const now = new Date();
+  const todayMins = now.getHours() * 60 + now.getMinutes();
+
+  for (let ahead = 0; ahead < 8; ahead++) {
+    const date = new Date(now);
+    date.setDate(now.getDate() + ahead);
+    const dow  = date.getDay();
+    const day  = hours.find(h => h.day_of_week === dow);
+    if (!day || !day.is_open) continue;
+
+    const [oh, om] = day.open_time.split(':').map(Number);
+    const [ch, cm] = day.close_time.split(':').map(Number);
+    const openMins  = oh * 60 + om;
+    const closeMins = ch * 60 + cm;
+
+    if (ahead === 0) {
+      if (todayMins >= openMins && todayMins < closeMins) return null; // currently open
+      if (todayMins < openMins) { date.setHours(oh, om, 0, 0); return date; }
+      continue; // past close today
+    }
+    date.setHours(oh, om, 0, 0);
+    return date;
+  }
+  return null; // all days closed — treat as always open
+}
+
+function fmtDispatchAt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  const when = d < tomorrow
+    ? 'Today'
+    : d < new Date(tomorrow.getTime() + 86400000)
+      ? 'Tomorrow'
+      : d.toLocaleDateString('en-ZA', { weekday: 'short', month: 'short', day: 'numeric' });
+  return `${when} at ${d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+// ─── TimePicker (inline component) ───────────────────────────────────────
+function TimePicker({ value = '08:00', onChange, disabled }) {
+  const parts  = value.split(':');
+  const hh     = parts[0] || '08';
+  const mm     = parts[1] || '00';
+  return (
+    <View style={tp.wrap}>
+      <TextInput
+        style={[tp.seg, disabled && tp.segDisabled]}
+        value={hh}
+        editable={!disabled}
+        keyboardType="numeric"
+        maxLength={2}
+        selectTextOnFocus
+        onChangeText={v => {
+          const n = Math.min(23, Math.max(0, parseInt(v) || 0));
+          onChange(`${String(n).padStart(2,'0')}:${mm}`);
+        }}
+      />
+      <Text style={[tp.colon, disabled && { color: '#333' }]}>:</Text>
+      <TextInput
+        style={[tp.seg, disabled && tp.segDisabled]}
+        value={mm}
+        editable={!disabled}
+        keyboardType="numeric"
+        maxLength={2}
+        selectTextOnFocus
+        onChangeText={v => {
+          const n = Math.min(59, Math.max(0, parseInt(v) || 0));
+          onChange(`${hh}:${String(n).padStart(2,'0')}`);
+        }}
+      />
+    </View>
+  );
+}
+const tp = StyleSheet.create({
+  wrap:       { flexDirection: 'row', alignItems: 'center' },
+  seg:        { width: 34, textAlign: 'center', color: '#fff', fontSize: 14, fontWeight: '700',
+                backgroundColor: '#1e1e1e', borderRadius: 8, paddingVertical: 6 },
+  segDisabled:{ color: '#444', backgroundColor: '#131313' },
+  colon:      { color: '#aaa', fontSize: 16, fontWeight: '700', paddingHorizontal: 2 },
+});
 
 // ─── Main screen ──────────────────────────────────────────────────────────
 export default function MerchantScreen({ navigation }) {
@@ -162,6 +259,17 @@ export default function MerchantScreen({ navigation }) {
   const [dispToUnit,     setDispToUnit]     = useState('');  // Unit / flat / complex detail
   const dispDebRef = useRef(null);
 
+  // ── Operating hours ──────────────────────────────────────────────────
+  const [merchantHours, setMerchantHours] = useState([]);
+  const [hoursLoading,  setHoursLoading]  = useState(false);
+  const [hoursSaving,   setHoursSaving]   = useState(false);
+
+  // ── Scheduled orders / toast ─────────────────────────────────────────
+  const [scheduledOrders, setScheduledOrders] = useState([]);
+  const [homeTab,          setHomeTab]         = useState('active'); // 'active' | 'scheduled'
+  const [toast,            setToast]           = useState(null);     // { msg, type }
+  const toastTimerRef = useRef(null);
+
   // ─── Load data on mount ───────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -177,6 +285,7 @@ export default function MerchantScreen({ navigation }) {
       if (uid) {
         loadOrders(uid);
         loadCustomers(uid);
+        loadHours(uid);
       }
     });
     return () => { orderSubRef.current?.unsubscribe(); };
@@ -228,7 +337,10 @@ export default function MerchantScreen({ navigation }) {
       count: todayOrders.length,
       spend: todayOrders.reduce((s, o) => s + (parseFloat(o.price) || 0), 0),
     });
-    setLiveOrders(orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled'));
+    setLiveOrders(orders.filter(o =>
+      o.status !== 'delivered' && o.status !== 'cancelled' && o.status !== 'scheduled'
+    ));
+    setScheduledOrders(orders.filter(o => o.status === 'scheduled'));
   };
 
   // ─── Load saved customers ─────────────────────────────────────────────
@@ -241,6 +353,51 @@ export default function MerchantScreen({ navigation }) {
       .order('name');
     if (data) setSavedCustomers(data);
     setCustLoading(false);
+  };
+
+  // ─── Toast ────────────────────────────────────────────────────────────
+  const showToast = (msg, type = 'info') => {
+    clearTimeout(toastTimerRef.current);
+    setToast({ msg, type });
+    toastTimerRef.current = setTimeout(() => setToast(null), 3500);
+  };
+
+  // ─── Load operating hours ─────────────────────────────────────────────
+  const loadHours = async (uid) => {
+    setHoursLoading(true);
+    const { data } = await supabase
+      .from('merchant_hours')
+      .select('*')
+      .eq('user_id', uid)
+      .order('day_of_week');
+    if (data && data.length > 0) {
+      const merged = DEFAULT_HOURS.map(def => {
+        const row = data.find(r => r.day_of_week === def.day_of_week);
+        return row ? { ...def, ...row } : def;
+      });
+      setMerchantHours(merged);
+    } else {
+      setMerchantHours(DEFAULT_HOURS);
+    }
+    setHoursLoading(false);
+  };
+
+  // ─── Save operating hours ─────────────────────────────────────────────
+  const saveHours = async () => {
+    setHoursSaving(true);
+    const rows = merchantHours.map(h => ({
+      user_id:     userId,
+      day_of_week: h.day_of_week,
+      is_open:     h.is_open,
+      open_time:   h.open_time,
+      close_time:  h.close_time,
+    }));
+    const { error } = await supabase
+      .from('merchant_hours')
+      .upsert(rows, { onConflict: 'user_id,day_of_week' });
+    setHoursSaving(false);
+    if (error) { showToast('Failed to save hours', 'error'); return; }
+    showToast('Operating hours saved', 'success');
   };
 
   // ─── Dispatch helpers ─────────────────────────────────────────────────
@@ -288,6 +445,8 @@ export default function MerchantScreen({ navigation }) {
   const handleDispatch = async () => {
     if (!dispTo) return;
     setDispPosting(true);
+    const nextOpen    = getNextOpeningTime(merchantHours);
+    const isScheduled = nextOpen !== null;
     const pin = Math.floor(100 + Math.random() * 900).toString();
     const { error } = await supabase.from('orders').insert([{
       user_id:       userId,
@@ -301,7 +460,8 @@ export default function MerchantScreen({ navigation }) {
       dist_km:       dispDist || null,
       package_size:  dispSize,
       notes:         dispNotes.trim() || null,
-      status:        'pending',
+      status:        isScheduled ? 'scheduled' : 'pending',
+      dispatch_at:   isScheduled ? nextOpen.toISOString() : null,
       payment_status:'paid',
       delivery_pin:  pin,
       customer_phone:dispCustomer?.phone || null,
@@ -310,6 +470,10 @@ export default function MerchantScreen({ navigation }) {
     if (error) { alert(error.message); return; }
     resetDispatch();
     setView('home');
+    if (isScheduled) {
+      setHomeTab('scheduled');
+      showToast(`Scheduled for ${fmtDispatchAt(nextOpen.toISOString())}`, 'info');
+    }
   };
 
   // ─── Dispatch address search for customer form ────────────────────────
@@ -505,8 +669,9 @@ export default function MerchantScreen({ navigation }) {
           {/* Quick-action tiles */}
           <View style={s.tileGrid}>
             {[
-              { icon: 'people-outline',      label: 'Customers',    accent: AMBER, onPress: () => setView('customers') },
-              { icon: 'time-outline',        label: 'History',      accent: BLUE,  onPress: () => setView('history')   },
+              { icon: 'people-outline',   label: 'Customers', accent: AMBER, onPress: () => setView('customers') },
+              { icon: 'time-outline',     label: 'History',   accent: BLUE,  onPress: () => setView('history')   },
+              { icon: 'calendar-outline', label: 'Hours',     accent: GREEN, onPress: () => setView('hours')     },
             ].map((tile, i) => (
               <TouchableOpacity key={i} style={s.tile} onPress={tile.onPress} activeOpacity={0.7}>
                 <View style={[s.tileIconWrap, { backgroundColor: tile.accent + '18' }]}>
@@ -517,13 +682,30 @@ export default function MerchantScreen({ navigation }) {
             ))}
           </View>
 
-          {/* Live orders */}
+          {/* Orders — Active / Scheduled tabs */}
           <View style={s.sectionRow}>
-            <Text style={s.sectionLabel}>
-              Live Orders
-              {hasAlert ? <Text style={{ color: RED }}> ●</Text> : null}
-            </Text>
-            {liveOrders.length > 0 && (
+            <View style={s.orderTabs}>
+              <TouchableOpacity
+                style={[s.orderTab, homeTab === 'active' && s.orderTabActive]}
+                onPress={() => setHomeTab('active')}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.orderTabTxt, homeTab === 'active' && s.orderTabTxtActive]}>
+                  Active{liveOrders.length > 0 ? ` (${liveOrders.length})` : ''}
+                  {hasAlert ? <Text style={{ color: RED }}>  ●</Text> : null}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.orderTab, homeTab === 'scheduled' && s.orderTabActive]}
+                onPress={() => setHomeTab('scheduled')}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.orderTabTxt, homeTab === 'scheduled' && s.orderTabTxtActive]}>
+                  Scheduled{scheduledOrders.length > 0 ? ` (${scheduledOrders.length})` : ''}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {homeTab === 'active' && liveOrders.length > 0 && (
               <TouchableOpacity onPress={() => setView('history')}>
                 <Text style={s.seeAll}>See all →</Text>
               </TouchableOpacity>
@@ -532,23 +714,81 @@ export default function MerchantScreen({ navigation }) {
 
           {ordersLoading ? (
             <ActivityIndicator color={LIME} style={{ marginTop: 20 }} />
-          ) : liveOrders.length === 0 ? (
-            <View style={s.emptyWrap}>
-              <Ionicons name="bicycle-outline" size={40} color={MUTED} />
-              <Text style={s.emptyTxt}>No active deliveries</Text>
-              <Text style={s.emptySub}>Tap Dispatch to send your first order</Text>
-            </View>
+          ) : homeTab === 'active' ? (
+            liveOrders.length === 0 ? (
+              <View style={s.emptyWrap}>
+                <Ionicons name="bicycle-outline" size={40} color={MUTED} />
+                <Text style={s.emptyTxt}>No active deliveries</Text>
+                <Text style={s.emptySub}>Tap Dispatch to send your first order</Text>
+              </View>
+            ) : (
+              liveOrders.map((order) => {
+                const info = si(order.status);
+                const isCancelled = order.status === 'pending' && order.rider_id === null;
+                return (
+                  <View key={order.id} style={[s.orderCard, isCancelled && { borderColor: AMBER + '40', borderWidth: 1 }]}>
+                    <View style={s.orderLeft}>
+                      <View style={[s.statusPill, { backgroundColor: info.color + '18' }]}>
+                        <Text style={[s.statusTxt, { color: info.color }]}>{info.label}</Text>
+                      </View>
+                      <Text style={s.orderAddr} numberOfLines={1}>{order.to_address}</Text>
+                      {order.notes ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Ionicons name="document-text-outline" size={11} color={GREY} />
+                          <Text style={s.orderNotes} numberOfLines={1}>{order.notes}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <View style={s.orderRight}>
+                      <Text style={s.orderPrice}>R{Math.round(order.price)}</Text>
+                      {order.rider_name ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            const riderFirst = order.rider_name.split(' ')[0];
+                            const riderPhoneRaw = (order.rider_phone || '').replace(/\D/g,'');
+                            const riderIntl = riderPhoneRaw.startsWith('0') ? '27' + riderPhoneRaw.slice(1) : riderPhoneRaw;
+                            const phoneLabel = riderIntl ? ` (📞 +${riderIntl})` : '';
+                            const msg = encodeURIComponent(
+                              `Hi ${riderFirst}! 👋 This is ${storeName || 'your merchant'} on RunIt. Just checking in on order #${String(order.id).slice(-5)} — how's it going?${phoneLabel}`
+                            );
+                            const target = riderIntl || (order.customer_phone || '').replace(/\D/g,'').replace(/^0/, '27');
+                            if (target) Linking.openURL(`https://wa.me/${target}?text=${msg}`);
+                          }}
+                          style={s.miniWaBtn}
+                        >
+                          <Ionicons name="logo-whatsapp" size={14} color="#25d366" />
+                          <Text style={s.miniWaTxt}>{order.rider_name.split(' ')[0]}</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })
+            )
           ) : (
-            liveOrders.map((order) => {
-              const info = si(order.status);
-              const isCancelled = order.status === 'pending' && order.rider_id === null;
-              return (
-                <View key={order.id} style={[s.orderCard, isCancelled && { borderColor: AMBER + '40', borderWidth: 1 }]}>
+            /* ── Scheduled tab ── */
+            scheduledOrders.length === 0 ? (
+              <View style={s.emptyWrap}>
+                <Ionicons name="moon-outline" size={40} color={MUTED} />
+                <Text style={s.emptyTxt}>No scheduled orders</Text>
+                <Text style={s.emptySub}>Orders placed outside opening hours appear here</Text>
+              </View>
+            ) : (
+              scheduledOrders.map((order) => (
+                <View key={order.id} style={[s.orderCard, { borderColor: BLUE + '30', borderWidth: 1 }]}>
                   <View style={s.orderLeft}>
-                    <View style={[s.statusPill, { backgroundColor: info.color + '18' }]}>
-                      <Text style={[s.statusTxt, { color: info.color }]}>{info.label}</Text>
+                    <View style={[s.statusPill, { backgroundColor: BLUE + '18' }]}>
+                      <Text style={[s.statusTxt, { color: BLUE }]}>Scheduled</Text>
                     </View>
                     <Text style={s.orderAddr} numberOfLines={1}>{order.to_address}</Text>
+                    {order.dispatch_at && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons name="time-outline" size={11} color={BLUE} />
+                        <Text style={[s.orderNotes, { color: BLUE + 'cc' }]}>
+                          {fmtDispatchAt(order.dispatch_at)}
+                        </Text>
+                      </View>
+                    )}
                     {order.notes ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                         <Ionicons name="document-text-outline" size={11} color={GREY} />
@@ -558,32 +798,26 @@ export default function MerchantScreen({ navigation }) {
                   </View>
                   <View style={s.orderRight}>
                     <Text style={s.orderPrice}>R{Math.round(order.price)}</Text>
-                    {order.rider_name ? (
-                      <TouchableOpacity
-                        onPress={() => {
-                          const riderFirst = order.rider_name.split(' ')[0];
-                          const riderPhoneRaw = (order.rider_phone || '').replace(/\D/g,'');
-                          const riderIntl = riderPhoneRaw.startsWith('0') ? '27' + riderPhoneRaw.slice(1) : riderPhoneRaw;
-                          const phoneLabel = riderIntl ? ` (📞 +${riderIntl})` : '';
-                          const msg = encodeURIComponent(
-                            `Hi ${riderFirst}! 👋 This is ${storeName || 'your merchant'} on RunIt. Just checking in on order #${String(order.id).slice(-5)} — how's it going?${phoneLabel}`
-                          );
-                          const target = riderIntl || (order.customer_phone || '').replace(/\D/g,'').replace(/^0/, '27');
-                          if (target) Linking.openURL(`https://wa.me/${target}?text=${msg}`);
-                        }}
-                        style={s.miniWaBtn}
-                      >
-                        <Ionicons name="logo-whatsapp" size={14} color="#25d366" />
-                        <Text style={s.miniWaTxt}>{order.rider_name.split(' ')[0]}</Text>
-                      </TouchableOpacity>
-                    ) : null}
                   </View>
                 </View>
-              );
-            })
+              ))
+            )
           )}
 
         </ScrollView>
+
+        {/* Toast */}
+        {toast && (
+          <View style={[s.toast, toast.type === 'success' && s.toastSuccess, toast.type === 'info' && s.toastInfo]}>
+            <Ionicons
+              name={toast.type === 'success' ? 'checkmark-circle' : 'information-circle'}
+              size={18}
+              color={toast.type === 'success' ? GREEN : BLUE}
+            />
+            <Text style={s.toastTxt}>{toast.msg}</Text>
+          </View>
+        )}
+
         {bottomBar}
       </View>
     );
@@ -735,6 +969,24 @@ export default function MerchantScreen({ navigation }) {
             />
           </View>
 
+          {/* Scheduled dispatch notice */}
+          {(() => {
+            const nxt = getNextOpeningTime(merchantHours);
+            if (!nxt) return null;
+            return (
+              <View style={s.scheduledNotice}>
+                <Ionicons name="moon-outline" size={16} color={BLUE} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.scheduledNoticeTitle}>Outside Operating Hours</Text>
+                  <Text style={s.scheduledNoticeSub}>
+                    This order will be queued and dispatched automatically on{' '}
+                    {fmtDispatchAt(nxt.toISOString())}
+                  </Text>
+                </View>
+              </View>
+            );
+          })()}
+
           {/* Price preview */}
           {dispCalc ? (
             <View style={s.priceCard}>
@@ -764,12 +1016,21 @@ export default function MerchantScreen({ navigation }) {
           >
             {dispPosting
               ? <ActivityIndicator color={BG} />
-              : <>
-                  <Ionicons name="bicycle" size={20} color={BG} />
-                  <Text style={s.dispatchBtnTxt}>
-                    Dispatch Now{dispPrice ? ` · R${dispPrice}` : ''}
-                  </Text>
-                </>
+              : (() => {
+                  const nxt = getNextOpeningTime(merchantHours);
+                  const scheduled = nxt !== null;
+                  return (
+                    <>
+                      <Ionicons name={scheduled ? 'time-outline' : 'bicycle'} size={20} color={BG} />
+                      <Text style={s.dispatchBtnTxt}>
+                        {scheduled
+                          ? `Schedule · ${fmtDispatchAt(nxt.toISOString())}`
+                          : `Dispatch Now${dispPrice ? ` · R${dispPrice}` : ''}`
+                        }
+                      </Text>
+                    </>
+                  );
+                })()
             }
           </TouchableOpacity>
 
@@ -1034,6 +1295,110 @@ export default function MerchantScreen({ navigation }) {
             })
           )}
         </ScrollView>
+        {bottomBar}
+      </View>
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // OPERATING HOURS VIEW
+  // ══════════════════════════════════════════════════════════════
+  if (view === 'hours') {
+    return (
+      <View style={s.container}>
+        <StatusBar style="light" />
+        <TopBar greetingText={greetingText} />
+
+        <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+
+          <TouchableOpacity onPress={() => setView('home')} style={s.backRow}>
+            <Ionicons name="arrow-back" size={18} color={GREY} />
+            <Text style={s.backTxt}>Back</Text>
+          </TouchableOpacity>
+
+          <Text style={s.headerLabel}>SETTINGS</Text>
+          <Text style={[s.headline, { marginBottom: 6 }]}>
+            Operating<Text style={{ color: LIME }}> Hours.</Text>
+          </Text>
+          <Text style={[s.emptySub, { marginBottom: 24 }]}>
+            Orders placed outside these hours are automatically scheduled for your next opening time.
+          </Text>
+
+          {hoursLoading ? (
+            <ActivityIndicator color={LIME} style={{ marginTop: 20 }} />
+          ) : (
+            merchantHours.map((day, i) => (
+              <View key={day.day_of_week} style={s.hoursRow}>
+                <View style={s.hoursLeft}>
+                  <Text style={[s.hoursDay, !day.is_open && { color: MUTED }]}>{day.label}</Text>
+                  {!day.is_open && <Text style={s.hoursClosed}>Closed</Text>}
+                </View>
+                <View style={s.hoursRight}>
+                  {day.is_open && (
+                    <View style={s.hoursTimesRow}>
+                      <TimePicker
+                        value={day.open_time}
+                        onChange={v => {
+                          const next = [...merchantHours];
+                          next[i] = { ...next[i], open_time: v };
+                          setMerchantHours(next);
+                        }}
+                      />
+                      <Text style={s.hoursDash}>–</Text>
+                      <TimePicker
+                        value={day.close_time}
+                        onChange={v => {
+                          const next = [...merchantHours];
+                          next[i] = { ...next[i], close_time: v };
+                          setMerchantHours(next);
+                        }}
+                      />
+                    </View>
+                  )}
+                  <Switch
+                    value={!!day.is_open}
+                    onValueChange={v => {
+                      const next = [...merchantHours];
+                      next[i] = { ...next[i], is_open: v };
+                      setMerchantHours(next);
+                    }}
+                    trackColor={{ false: '#2a2a2a', true: LIME + '60' }}
+                    thumbColor={day.is_open ? LIME : '#555'}
+                  />
+                </View>
+              </View>
+            ))
+          )}
+
+          <TouchableOpacity
+            style={[s.dispatchBtn, { marginTop: 8 }, hoursSaving && { opacity: 0.6 }]}
+            onPress={saveHours}
+            disabled={hoursSaving}
+            activeOpacity={0.85}
+          >
+            {hoursSaving
+              ? <ActivityIndicator color={BG} />
+              : <>
+                  <Ionicons name="checkmark" size={20} color={BG} />
+                  <Text style={s.dispatchBtnTxt}>Save Hours</Text>
+                </>
+            }
+          </TouchableOpacity>
+
+        </ScrollView>
+
+        {/* Toast */}
+        {toast && (
+          <View style={[s.toast, toast.type === 'success' && s.toastSuccess, toast.type === 'info' && s.toastInfo]}>
+            <Ionicons
+              name={toast.type === 'success' ? 'checkmark-circle' : 'information-circle'}
+              size={18}
+              color={toast.type === 'success' ? GREEN : BLUE}
+            />
+            <Text style={s.toastTxt}>{toast.msg}</Text>
+          </View>
+        )}
+
         {bottomBar}
       </View>
     );
@@ -1346,4 +1711,45 @@ const s = StyleSheet.create({
 
   backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 20 },
   backTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
+
+  // Order tabs (Active / Scheduled)
+  orderTabs:       { flexDirection: 'row', gap: 6 },
+  orderTab:        { paddingVertical: 5, paddingHorizontal: 12, borderRadius: 10, backgroundColor: SURFACE, borderWidth: 1, borderColor: '#1e1e1e' },
+  orderTabActive:  { backgroundColor: LIME + '18', borderColor: LIME },
+  orderTabTxt:     { fontSize: 11, fontWeight: '700', color: GREY },
+  orderTabTxtActive: { color: LIME },
+
+  // Scheduled dispatch notice (in dispatch form)
+  scheduledNotice: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+    backgroundColor: BLUE + '12', borderRadius: 16, padding: 16, marginBottom: 12,
+    borderWidth: 1, borderColor: BLUE + '30',
+  },
+  scheduledNoticeTitle: { fontSize: 13, fontWeight: '800', color: BLUE, marginBottom: 2 },
+  scheduledNoticeSub:   { fontSize: 12, color: BLUE + 'cc', lineHeight: 17 },
+
+  // Operating hours view
+  hoursRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: SURFACE, borderRadius: 16, padding: 16, marginBottom: 8,
+  },
+  hoursLeft:     { flex: 1 },
+  hoursDay:      { fontSize: 15, fontWeight: '700', color: '#fff' },
+  hoursClosed:   { fontSize: 11, color: MUTED, marginTop: 2 },
+  hoursRight:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  hoursTimesRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  hoursDash:     { color: GREY, fontSize: 14, paddingHorizontal: 2 },
+
+  // Toast
+  toast: {
+    position: 'absolute', bottom: 96, left: 20, right: 20,
+    backgroundColor: '#1a1a1a', borderRadius: 16, padding: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderColor: '#2a2a2a',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4, shadowRadius: 12, elevation: 12, zIndex: 999,
+  },
+  toastSuccess: { borderColor: GREEN + '50' },
+  toastInfo:    { borderColor: BLUE + '50' },
+  toastTxt:     { fontSize: 13, color: '#fff', fontWeight: '600', flex: 1 },
 });
