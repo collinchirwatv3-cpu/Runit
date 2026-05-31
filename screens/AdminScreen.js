@@ -347,11 +347,46 @@ export default function AdminScreen({ navigation }) {
     const p = payouts.find(r => r.id === id);
     await supabase.from('payout_requests').update({ status: 'paid' }).eq('id', id);
     logActivity('payout_paid', id, `Paid R${p?.amount} to ${p?.rider_name || 'rider'} via ${p?.bank_name || ''}`, { amount: p?.amount, rider: p?.rider_name });
+    // Push notification to rider
+    if (p?.rider_id) {
+      const { data: { session } } = await supabase.auth.getSession();
+      const accNum = p.account_number ? `****${String(p.account_number).slice(-4)}` : '';
+      fetch('/api/notify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          userId: p.rider_id,
+          title: '💸 Payout Processed',
+          body: `R${p.amount} has been paid to ${p.bank_name || 'your account'}${accNum ? ` ${accNum}` : ''}.`,
+          tag: 'runit-payout',
+        }),
+      }).catch(() => {});
+    }
   };
   const rejectPayout = async (id) => {
     const p = payouts.find(r => r.id === id);
     await supabase.from('payout_requests').update({ status: 'rejected' }).eq('id', id);
     logActivity('payout_rejected', id, `Rejected payout R${p?.amount} for ${p?.rider_name || 'rider'}`, { amount: p?.amount });
+    // Push notification to rider
+    if (p?.rider_id) {
+      const { data: { session } } = await supabase.auth.getSession();
+      fetch('/api/notify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          userId: p.rider_id,
+          title: 'Payout Rejected',
+          body: `Your R${p.amount} payout request was rejected. Please contact support for details.`,
+          tag: 'runit-payout',
+        }),
+      }).catch(() => {});
+    }
   };
   const cancelOrder = async (id) => {
     const o = orders.find(r => r.id === id);
@@ -848,18 +883,21 @@ export default function AdminScreen({ navigation }) {
                   </View>
                 </View>
 
-                <View style={s.docRow}>
-                  <View style={[s.docBtn, { backgroundColor: 'transparent', borderStyle: 'dashed' }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <Ionicons name="business-outline" size={12} color={GREY} />
-                      <Text style={{ color: GREY, fontSize: 12 }}>{p.bank_name}</Text>
+                {/* Banking details — laid out for quick PayShap / EFT */}
+                <View style={{ backgroundColor: '#0e0e0e', borderRadius: 12, padding: 12, marginTop: 8, gap: 6 }}>
+                  {[
+                    { label: 'Bank',           value: p.bank_name },
+                    { label: 'Account Holder', value: p.account_holder },
+                    { label: 'Account No.',    value: p.account_number },
+                    { label: 'Account Type',   value: p.account_type },
+                    { label: 'Branch Code',    value: p.branch_code },
+                  ].filter(r => r.value).map((r, i) => (
+                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ color: GREY, fontSize: 12 }}>{r.label}</Text>
+                      <Text style={{ color: '#ddd', fontSize: 12, fontWeight: '700' }}>{r.value}</Text>
                     </View>
-                  </View>
-                  <View style={[s.docBtn, { backgroundColor: 'transparent', borderStyle: 'dashed' }]}>
-                    <Text style={{ color: GREY, fontSize: 12 }}>Acc: {p.account_number}</Text>
-                  </View>
+                  ))}
                 </View>
-                {p.branch_code ? <Text style={{ color: MUTED, fontSize: 12 }}>Branch: {p.branch_code}</Text> : null}
 
                 {p.status === 'pending' && (
                   <View style={s.actionRow}>

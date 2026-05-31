@@ -270,6 +270,12 @@ export default function MerchantScreen({ navigation }) {
   const [toast,            setToast]           = useState(null);     // { msg, type }
   const toastTimerRef = useRef(null);
 
+  // ── Merchant wallet ───────────────────────────────────────────────────
+  const [walletBalance, setWalletBalance] = useState(null); // null = loading
+  const [showTopup,     setShowTopup]     = useState(false);
+  const [topupAmount,   setTopupAmount]   = useState('');
+  const [topupLoading,  setTopupLoading]  = useState(false);
+
   // ─── Load data on mount ───────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -286,8 +292,25 @@ export default function MerchantScreen({ navigation }) {
         loadOrders(uid);
         loadCustomers(uid);
         loadHours(uid);
+        loadWallet(uid);
       }
     });
+
+    // Detect return from PayFast wallet top-up redirect
+    if (Platform.OS === 'web') {
+      const params = new URLSearchParams(window.location.search);
+      const walletResult = params.get('wallet');
+      if (walletResult) {
+        window.history.replaceState({}, '', window.location.pathname);
+        if (walletResult === 'success') {
+          // Balance will refresh once wallet loads — show a toast
+          setTimeout(() => showToast('Top-up successful! Balance updated.', 'success'), 800);
+        } else {
+          setTimeout(() => showToast('Top-up cancelled.', 'error'), 800);
+        }
+      }
+    }
+
     return () => { orderSubRef.current?.unsubscribe(); };
   }, []);
 
@@ -400,6 +423,52 @@ export default function MerchantScreen({ navigation }) {
     showToast('Operating hours saved', 'success');
   };
 
+  // ─── Wallet ───────────────────────────────────────────────────────────
+  const loadWallet = async (uid) => {
+    const { data } = await supabase
+      .from('merchant_wallets')
+      .select('balance')
+      .eq('merchant_id', uid)
+      .maybeSingle();
+    setWalletBalance(data?.balance !== undefined ? parseFloat(data.balance) : 0);
+  };
+
+  const handleTopup = async () => {
+    const amt = parseFloat(topupAmount);
+    if (!amt || amt < 50) { showToast('Minimum top-up is R50', 'error'); return; }
+    setTopupLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/wallet-topup-initiate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ amount: amt }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed');
+      if (json.action && json.fields) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = json.action;
+        Object.entries(json.fields).forEach(([k, v]) => {
+          const input = document.createElement('input');
+          input.type = 'hidden'; input.name = k; input.value = v;
+          form.appendChild(input);
+        });
+        document.body.appendChild(form);
+        form.submit();
+        return;
+      }
+      throw new Error('Invalid response from payment server');
+    } catch (e) {
+      showToast(e.message || 'Top-up failed', 'error');
+      setTopupLoading(false);
+    }
+  };
+
   // ─── Dispatch helpers ─────────────────────────────────────────────────
   const handleDispToChange = (text) => {
     setDispTo(text);
@@ -444,6 +513,12 @@ export default function MerchantScreen({ navigation }) {
 
   const handleDispatch = async () => {
     if (!dispTo) return;
+    // Check wallet balance before dispatching
+    const requiredAmt = dispPrice || 0;
+    if (requiredAmt > 0 && walletBalance !== null && walletBalance < requiredAmt) {
+      showToast(`Insufficient wallet balance (R${walletBalance.toFixed(2)}) — please top up first`, 'error');
+      return;
+    }
     setDispPosting(true);
     const nextOpen    = getNextOpeningTime(merchantHours);
     const isScheduled = nextOpen !== null;
@@ -468,6 +543,16 @@ export default function MerchantScreen({ navigation }) {
     }]);
     setDispPosting(false);
     if (error) { alert(error.message); return; }
+
+    // Deduct delivery fee from merchant wallet (atomic via RPC)
+    if (requiredAmt > 0) {
+      await supabase.rpc('deduct_merchant_wallet', {
+        p_merchant_id: userId,
+        p_amount:      requiredAmt,
+      });
+      loadWallet(userId); // refresh displayed balance
+    }
+
     resetDispatch();
     setView('home');
     if (isScheduled) {
@@ -631,6 +716,27 @@ export default function MerchantScreen({ navigation }) {
               <Text style={s.dispatchFabTxt}>Dispatch</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Wallet balance card */}
+          <TouchableOpacity
+            style={[s.walletCard, walletBalance !== null && walletBalance < 50 && { borderColor: RED + '50' }]}
+            onPress={() => setShowTopup(true)}
+            activeOpacity={0.85}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={s.walletLabel}>WALLET BALANCE</Text>
+              <Text style={s.walletBalance}>
+                R {walletBalance !== null ? parseFloat(walletBalance).toFixed(2) : '—'}
+              </Text>
+              {walletBalance !== null && walletBalance < 50 && (
+                <Text style={s.walletLow}>⚠ Low — top up to keep dispatching</Text>
+              )}
+            </View>
+            <View style={s.topupBtn}>
+              <Ionicons name="add" size={16} color={BG} />
+              <Text style={s.topupBtnTxt}>Top Up</Text>
+            </View>
+          </TouchableOpacity>
 
           {/* Stats bar */}
           <View style={s.statsRow}>
@@ -808,13 +914,64 @@ export default function MerchantScreen({ navigation }) {
 
         {/* Toast */}
         {toast && (
-          <View style={[s.toast, toast.type === 'success' && s.toastSuccess, toast.type === 'info' && s.toastInfo]}>
+          <View style={[s.toast, toast.type === 'success' && s.toastSuccess, toast.type === 'info' && s.toastInfo, toast.type === 'error' && s.toastError]}>
             <Ionicons
-              name={toast.type === 'success' ? 'checkmark-circle' : 'information-circle'}
+              name={toast.type === 'success' ? 'checkmark-circle' : toast.type === 'error' ? 'close-circle' : 'information-circle'}
               size={18}
-              color={toast.type === 'success' ? GREEN : BLUE}
+              color={toast.type === 'success' ? GREEN : toast.type === 'error' ? RED : BLUE}
             />
             <Text style={s.toastTxt}>{toast.msg}</Text>
+          </View>
+        )}
+
+        {/* Top-up modal */}
+        {showTopup && (
+          <View style={s.modalOverlay}>
+            <View style={s.modalSheet}>
+              <View style={s.modalHandle} />
+              <Text style={s.modalTitle}>Top Up Wallet</Text>
+              <Text style={s.modalSub}>Balance: <Text style={{ color: LIME, fontWeight: '800' }}>R {walletBalance !== null ? parseFloat(walletBalance).toFixed(2) : '—'}</Text></Text>
+
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginVertical: 16 }}>
+                {[100, 200, 500, 1000].map(amt => (
+                  <TouchableOpacity
+                    key={amt}
+                    style={[s.topupPreset, topupAmount === String(amt) && s.topupPresetActive]}
+                    onPress={() => setTopupAmount(String(amt))}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[s.topupPresetTxt, topupAmount === String(amt) && { color: BG }]}>R{amt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={s.modalFieldLabel}>Or enter amount (min R50)</Text>
+              <TextInput
+                style={s.modalInput}
+                placeholder="e.g. 350"
+                placeholderTextColor={GREY}
+                keyboardType="numeric"
+                value={topupAmount}
+                onChangeText={setTopupAmount}
+              />
+
+              <View style={s.modalActions}>
+                <TouchableOpacity style={s.modalCancelBtn} onPress={() => { setShowTopup(false); setTopupAmount(''); }}>
+                  <Text style={s.modalCancelTxt}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.modalSubmitBtn, topupLoading && { opacity: 0.6 }]}
+                  onPress={handleTopup}
+                  disabled={topupLoading}
+                  activeOpacity={0.85}
+                >
+                  {topupLoading
+                    ? <ActivityIndicator color={BG} size="small" />
+                    : <Text style={s.modalSubmitTxt}>Pay R{topupAmount || '—'}</Text>
+                  }
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         )}
 
@@ -1751,5 +1908,36 @@ const s = StyleSheet.create({
   },
   toastSuccess: { borderColor: GREEN + '50' },
   toastInfo:    { borderColor: BLUE + '50' },
+  toastError:   { borderColor: RED + '50' },
   toastTxt:     { fontSize: 13, color: '#fff', fontWeight: '600', flex: 1 },
+
+  // Wallet
+  walletCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: SURFACE, borderRadius: 18,
+    padding: 18, marginBottom: 14,
+    borderWidth: 1, borderColor: LIME + '30',
+  },
+  walletLabel: { fontSize: 10, fontWeight: '700', color: GREY, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 },
+  walletBalance: { fontSize: 28, fontWeight: '900', color: LIME, letterSpacing: -0.5 },
+  walletLow:  { fontSize: 11, color: RED, fontWeight: '600', marginTop: 4 },
+  topupBtn:   { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: LIME, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  topupBtnTxt:{ fontSize: 13, fontWeight: '900', color: BG },
+  topupPreset: { flex: 1, minWidth: '22%', alignItems: 'center', backgroundColor: '#1a1a1a', borderRadius: 12, paddingVertical: 12, borderWidth: 1.5, borderColor: '#2a2a2a' },
+  topupPresetActive: { backgroundColor: LIME, borderColor: LIME },
+  topupPresetTxt: { fontSize: 15, fontWeight: '800', color: '#ccc' },
+
+  // Modal (top-up sheet)
+  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end', zIndex: 500 },
+  modalSheet:   { backgroundColor: '#141414', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 28, paddingBottom: 48 },
+  modalHandle:  { width: 36, height: 4, backgroundColor: '#2a2a2a', borderRadius: 2, alignSelf: 'center', marginBottom: 22 },
+  modalTitle:   { fontSize: 24, fontWeight: '900', color: '#fff', marginBottom: 4 },
+  modalSub:     { fontSize: 14, color: GREY, marginBottom: 8 },
+  modalFieldLabel: { fontSize: 10, fontWeight: '700', color: '#555', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8 },
+  modalInput:   { backgroundColor: SURFACE, borderWidth: 1.5, borderColor: '#1e1e1e', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 16 },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  modalCancelBtn:  { flex: 1, height: 50, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#2a2a2a' },
+  modalCancelTxt:  { fontSize: 15, fontWeight: '700', color: GREY },
+  modalSubmitBtn:  { flex: 2, height: 50, alignItems: 'center', justifyContent: 'center', backgroundColor: LIME, borderRadius: 14 },
+  modalSubmitTxt:  { fontSize: 15, fontWeight: '900', color: BG },
 });
