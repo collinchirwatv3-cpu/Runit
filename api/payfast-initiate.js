@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const rateLimit = require('./_ratelimit');
 
 // PayFast signature: alphabetical key sort, PHP-style urlencode (spaces → +)
 function buildSignature(data, passphrase) {
@@ -28,6 +29,14 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Rate limit: 15 payment initiations per IP per minute
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
+  const rl = rateLimit(ip, 'payfast-initiate', 15, 60_000);
+  if (!rl.allowed) {
+    res.setHeader('Retry-After', rl.retryAfterSec);
+    return res.status(429).json({ error: 'Too many requests — please wait a moment.' });
+  }
 
   const { orderId, amount, itemName } = req.body || {};
   if (!orderId || !amount) return res.status(400).json({ error: 'Missing orderId or amount' });

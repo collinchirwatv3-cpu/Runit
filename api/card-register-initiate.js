@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
+const rateLimit = require('./_ratelimit');
 
 function phpUrlencode(str) {
   return encodeURIComponent(str)
@@ -23,6 +24,14 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Rate limit: 5 card registrations per IP per minute
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
+  const rl = rateLimit(ip, 'card-register', 5, 60_000);
+  if (!rl.allowed) {
+    res.setHeader('Retry-After', rl.retryAfterSec);
+    return res.status(429).json({ error: 'Too many requests — please wait a moment.' });
+  }
 
   // Verify merchant JWT
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');

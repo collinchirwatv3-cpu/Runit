@@ -1,4 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
+const rateLimit = require('./_ratelimit');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -6,6 +7,14 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Rate limit: 3 attempts per IP per minute (very strict — irreversible action)
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
+  const rl = rateLimit(ip, 'delete-account', 3, 60_000);
+  if (!rl.allowed) {
+    res.setHeader('Retry-After', rl.retryAfterSec);
+    return res.status(429).json({ error: 'Too many requests — please wait a moment.' });
+  }
 
   // Verify the caller's JWT so only the owner can delete their account
   const authHeader = req.headers.authorization || '';
