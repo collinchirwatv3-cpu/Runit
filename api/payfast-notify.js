@@ -25,8 +25,8 @@ module.exports = async (req, res) => {
   const passphrase = process.env.PAYFAST_PASSPHRASE || '';
   const expected = buildSignature(body, passphrase);
 
-  if (body.signature && body.signature !== expected) {
-    console.error('PayFast ITN signature mismatch');
+  if (!body.signature || body.signature !== expected) {
+    console.error('PayFast ITN signature mismatch or missing');
     return res.status(400).send('Bad signature');
   }
 
@@ -56,7 +56,10 @@ module.exports = async (req, res) => {
   // Fire push notifications to riders (best-effort, don't block the ITN response)
   const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
   if (appUrl) {
-    fetch(`${appUrl}/api/notify-riders`, { method: 'POST' }).catch(() => {});
+    fetch(`${appUrl}/api/notify-riders`, {
+      method: 'POST',
+      headers: { 'x-internal-secret': process.env.INTERNAL_SECRET || '' },
+    }).catch(() => {});
   }
 
   res.status(200).send('OK');

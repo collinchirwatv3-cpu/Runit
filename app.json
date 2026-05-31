@@ -26,6 +26,9 @@
       "favicon": "./assets/favicon.png",
       "bundler": "metro",
       "output": "single"
-    }
+    },
+    "plugins": [
+      "@sentry/react-native"
+    ]
   }
 }

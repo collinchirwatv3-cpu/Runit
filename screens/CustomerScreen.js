@@ -131,8 +131,8 @@ L.polyline(routeCoords,{color:'#c8f000',weight:8,opacity:0.12}).addTo(map);
 var iconA=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(200,240,0,0.7)"></div>',iconSize:[16,16],iconAnchor:[8,8],className:''});
 var iconB=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(239,68,68,0.6)"></div>',iconSize:[16,16],iconAnchor:[8,8],className:''});
 var iconR=L.divIcon({html:'<div style="width:20px;height:20px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 2px 10px rgba(0,0,0,0.9),0 0 18px rgba(200,240,0,0.5);"></div>',iconSize:[20,20],iconAnchor:[10,10],className:''});
-L.marker(A,{icon:iconA}).bindTooltip('${fromLabel.replace(/'/g,"\\'")}',{permanent:true,direction:'top',className:'tip',offset:[0,-10]}).addTo(map);
-L.marker(B,{icon:iconB}).bindTooltip('${toLabel.replace(/'/g,"\\'")}',{permanent:true,direction:'bottom',className:'tip',offset:[0,10]}).addTo(map);
+L.marker(A,{icon:iconA}).bindTooltip(${JSON.stringify(fromLabel)},{permanent:true,direction:'top',className:'tip',offset:[0,-10]}).addTo(map);
+L.marker(B,{icon:iconB}).bindTooltip(${JSON.stringify(toLabel)},{permanent:true,direction:'bottom',className:'tip',offset:[0,10]}).addTo(map);
 map.fitBounds(L.latLngBounds([A,B]).pad(0.35));
 var riderMarker=null;
 window.updateRider=function(lat,lon){if(riderMarker){var el=riderMarker.getElement();if(el){el.style.transition='transform 4500ms linear';}riderMarker.setLatLng([lat,lon]);}else{riderMarker=L.marker([lat,lon],{icon:iconR}).bindTooltip('On the way',{permanent:true,direction:'top',className:'tip',offset:[0,-14]}).addTo(map);}};
@@ -966,7 +966,7 @@ export default function CustomerScreen({ navigation }) {
     if (!from || !to) { Alert.alert('Missing Info', 'Enter pickup and drop-off'); return; }
     setLoading(true);
 
-    const pin = Math.floor(100 + Math.random() * 900).toString();
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
 
     const { data: insertData, error } = await supabase
       .from('orders')
@@ -998,10 +998,14 @@ export default function CustomerScreen({ navigation }) {
     if (Platform.OS === 'web') {
       localStorage.setItem('runit_pending_order', JSON.stringify({ orderId, pin, from, to, dist, price, fromCoords, toCoords }));
       try {
+        const { data: { session } } = await supabase.auth.getSession();
         const res = await fetch('/api/payfast-initiate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId, amount: price, itemName: 'RunIt Delivery' }),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({ orderId, itemName: 'RunIt Delivery' }),
         });
         const json = await res.json();
         if (json.action && json.fields) {

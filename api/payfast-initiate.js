@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { createClient } = require('@supabase/supabase-js');
 const rateLimit = require('./_ratelimit');
 
 // PayFast signature: alphabetical key sort, PHP-style urlencode (spaces → +)
@@ -38,8 +39,30 @@ module.exports = async (req, res) => {
     return res.status(429).json({ error: 'Too many requests — please wait a moment.' });
   }
 
-  const { orderId, amount, itemName } = req.body || {};
-  if (!orderId || !amount) return res.status(400).json({ error: 'Missing orderId or amount' });
+  // Verify caller's JWT — only the order owner can initiate payment
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+  if (authErr || !user) return res.status(401).json({ error: 'Invalid token' });
+
+  const { orderId, itemName } = req.body || {};
+  if (!orderId) return res.status(400).json({ error: 'Missing orderId' });
+
+  // Look up price from DB — never trust client-supplied amount
+  const { data: order } = await supabase
+    .from('orders')
+    .select('price, user_id, payment_status')
+    .eq('id', orderId)
+    .single();
+
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.user_id !== user.id) return res.status(403).json({ error: 'Forbidden' });
+  if (order.payment_status === 'paid') return res.status(409).json({ error: 'Already paid' });
+
+  const amount = parseFloat(order.price);
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid order price' });
 
   const merchantId = process.env.PAYFAST_MERCHANT_ID;
   const merchantKey = process.env.PAYFAST_MERCHANT_KEY;
@@ -58,7 +81,7 @@ module.exports = async (req, res) => {
     cancel_url: `${appUrl}/?payment=cancel&order=${orderId}`,
     notify_url: `${appUrl}/api/payfast-notify`,
     m_payment_id: String(orderId),
-    amount: parseFloat(amount).toFixed(2),
+    amount: amount.toFixed(2),
     item_name: (itemName || 'RunIt Delivery').substring(0, 100),
   };
 

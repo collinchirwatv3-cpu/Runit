@@ -11,7 +11,7 @@ module.exports = async (req, res) => {
 
   // Shared secret between this function and the pg_cron SQL
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
+  if (!cronSecret || req.headers['x-cron-secret'] !== cronSecret) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 

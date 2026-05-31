@@ -37,10 +37,22 @@ module.exports = async (req, res) => {
   const { data: { user }, error: authErr } = await supabase.auth.getUser(authToken);
   if (authErr || !user) return res.status(401).json({ error: 'Invalid token' });
 
-  const { orderId, amount, itemName } = req.body || {};
-  if (!orderId || !amount) {
-    return res.status(400).json({ error: 'Missing orderId or amount' });
-  }
+  const { orderId, itemName } = req.body || {};
+  if (!orderId) return res.status(400).json({ error: 'Missing orderId' });
+
+  // Verify the order belongs to this merchant and is unpaid
+  const { data: order } = await supabase
+    .from('orders')
+    .select('user_id, price, payment_status')
+    .eq('id', orderId)
+    .single();
+
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.user_id !== user.id) return res.status(403).json({ error: 'Forbidden' });
+  if (order.payment_status === 'paid') return res.status(409).json({ error: 'Already paid' });
+
+  const amount = parseFloat(order.price);
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid order price' });
 
   // Look up merchant's saved card token
   const { data: tokenRow } = await supabase

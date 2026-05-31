@@ -23,8 +23,8 @@ module.exports = async (req, res) => {
   const passphrase = process.env.PAYFAST_PASSPHRASE || '';
   const expected   = buildSignature(body, passphrase);
 
-  if (body.signature && body.signature !== expected) {
-    console.error('Card register ITN signature mismatch');
+  if (!body.signature || body.signature !== expected) {
+    console.error('Card register ITN signature mismatch or missing');
     return res.status(400).send('Bad signature');
   }
 

@@ -4,8 +4,14 @@ const { createClient } = require('@supabase/supabase-js');
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-internal-secret');
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  // Only allow calls from our own server-side code (ITN handlers, cron)
+  const internalSecret = process.env.INTERNAL_SECRET;
+  if (!internalSecret || req.headers['x-internal-secret'] !== internalSecret) {
+    return res.status(401).end();
+  }
 
   const vapidPublic = process.env.VAPID_PUBLIC_KEY;
   const vapidPrivate = process.env.VAPID_PRIVATE_KEY;

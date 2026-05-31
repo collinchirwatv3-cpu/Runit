@@ -1156,11 +1156,17 @@ export default function RiderScreen({ navigation }) {
     const { data: { user } } = await supabase.auth.getUser();
     const riderName = user?.user_metadata?.name || 'Your rider';
     const riderPhone = user?.user_metadata?.phone || null;
-    const { error } = await supabase
+    const { error, count } = await supabase
       .from('orders')
       .update({ status: 'on_the_way', rider_id: userId, rider_name: riderName, rider_phone: riderPhone })
-      .eq('id', job.id);
-    if (error) { showToast('Failed to accept — try again'); return; }
+      .eq('id', job.id)
+      .eq('status', 'pending') // prevent race — only accept if still unclaimed
+      .select('id', { count: 'exact', head: true });
+    if (error || count === 0) {
+      showToast('Order was just taken — check the jobs list');
+      setJobs(p => p.filter(j => j.id !== job.id));
+      return;
+    }
     _setActiveJob(job);
     setJobs(p => p.filter(j => j.id !== job.id));
     setPinInput('');
@@ -1191,7 +1197,9 @@ export default function RiderScreen({ navigation }) {
       showToast('Wrong PIN — ask the recipient again');
       return;
     }
-    await supabase.from('orders').update({ status: 'delivered' }).eq('id', activeJob.id);
+    await supabase.from('orders').update({ status: 'delivered' })
+      .eq('id', activeJob.id)
+      .eq('rider_id', userId); // only the assigned rider can confirm delivery
     stopLocationBroadcast();
     const done = { ...activeJob };
     // Notify customer their package was delivered

@@ -29,7 +29,9 @@ module.exports = async (req, res) => {
   }
 
   // Verify the JWT and get the user's ID using the anon client
-  const anonClient = createClient(supabaseUrl, process.env.SUPABASE_ANON_KEY || serviceKey);
+  const anonKey = process.env.SUPABASE_ANON_KEY;
+  if (!anonKey) return res.status(500).json({ error: 'Server misconfigured' });
+  const anonClient = createClient(supabaseUrl, anonKey);
   const { data: { user }, error: authErr } = await anonClient.auth.getUser(token);
   if (authErr || !user) return res.status(401).json({ error: 'Invalid token' });
 
