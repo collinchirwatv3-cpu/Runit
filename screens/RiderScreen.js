@@ -492,9 +492,6 @@ function RiderTripMap({ initRider, fromCoords, toCoords, iframeRef: extIframeRef
   return <WebView ref={ref} source={{ html }} style={{ flex: 1 }} javaScriptEnabled />;
 }
 
-// ─── Mock jobs ────────────────────────────────────────────────────────────
-
-
 function formatOrder(o) {
   const km = o.dist_km
     ? parseFloat(o.dist_km)
@@ -772,6 +769,8 @@ export default function RiderScreen({ navigation }) {
   const [editingPayId, setEditingPayId]       = useState(null);
   const [discInfo, setDiscInfo] = useState(null); // { expiry: Date, daysLeft: number }
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [payoutRequests, setPayoutRequests] = useState([]);
+  const [completionRate, setCompletionRate] = useState(null);
   const locationIntervalRef = useRef(null);
   const sub = useRef(null);
   const riderLocRef = useRef(null);      // current rider position (for proximity)
@@ -1040,17 +1039,19 @@ export default function RiderScreen({ navigation }) {
     setEarningsHistory({ today: todayTotal, trips: todayTrips, week });
     setDeliveryHistory(data);
 
-    // Compute all-time average rating
-    const { data: ratingRows } = await supabase
-      .from('orders')
-      .select('rating')
-      .eq('rider_id', id)
-      .eq('status', 'delivered')
-      .not('rating', 'is', null);
+    // All-time average rating + completion rate (parallel)
+    const [{ data: ratingRows }, { data: cancelledRows }, { data: payoutRows }] = await Promise.all([
+      supabase.from('orders').select('rating').eq('rider_id', id).eq('status', 'delivered').not('rating', 'is', null),
+      supabase.from('orders').select('id').eq('rider_id', id).eq('status', 'cancelled'),
+      supabase.from('payout_requests').select('*').eq('rider_id', id).order('created_at', { ascending: false }).limit(20),
+    ]);
     if (ratingRows?.length) {
       const avg = ratingRows.reduce((s, o) => s + (o.rating || 0), 0) / ratingRows.length;
       setAvgRating(avg.toFixed(1));
     }
+    const totalAll = (data?.length || 0) + (cancelledRows?.length || 0);
+    setCompletionRate(totalAll > 0 ? Math.round(((data?.length || 0) / totalAll) * 100) : 100);
+    if (payoutRows) setPayoutRequests(payoutRows);
   };
 
   const startLocationBroadcast = (job) => {
@@ -1288,13 +1289,17 @@ export default function RiderScreen({ navigation }) {
       amount:         parseFloat(amount),
       bank_name:      bankName,
       account_number: accountNum,
+      account_holder: dm.accountHolder || '',
+      account_type:   dm.accountType   || '',
       branch_code:    branchCode,
+      status:         'pending',
     }]);
     setCashoutLoading(false);
     if (error) { showToast('Failed to submit — try again'); return; }
     showToast('Cashout request submitted.');
     setShowCashout(false);
     setCashoutForm({ amount: '' });
+    loadEarnings(userId); // refresh payout history
   };
 
   const activeTab = (view === 'earnings' || view === 'payments') ? 'earnings' : view === 'jobs' ? 'jobs' : 'home';
@@ -1856,6 +1861,39 @@ export default function RiderScreen({ navigation }) {
               <Text style={s.emptySub}>Complete your first run to see history here</Text>
             </View>
           )}
+
+          {/* Payout request history */}
+          {payoutRequests.length > 0 && (
+            <>
+              <Text style={[s.sectionLabel, { marginTop: 28 }]}>Payout Requests</Text>
+              {payoutRequests.map((p, i) => {
+                const statusColor = p.status === 'paid' ? GREEN : p.status === 'rejected' ? '#ef4444' : AMBER;
+                const statusLabel = p.status === 'paid' ? 'Paid' : p.status === 'rejected' ? 'Rejected' : 'Pending';
+                const statusIcon  = p.status === 'paid' ? 'checkmark-circle' : p.status === 'rejected' ? 'close-circle' : 'time-outline';
+                return (
+                  <View key={p.id || i} style={s.payoutRow}>
+                    <View style={[s.payoutIcon, { backgroundColor: statusColor + '18' }]}>
+                      <Ionicons name={statusIcon} size={16} color={statusColor} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.payoutBank}>
+                        {p.bank_name || 'Bank payout'}
+                        {p.account_number ? `  ·  ****${String(p.account_number).slice(-4)}` : ''}
+                      </Text>
+                      <Text style={s.payoutDate}>
+                        {new Date(p.created_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: 3 }}>
+                      <Text style={s.payoutAmt}>R {parseFloat(p.amount).toFixed(0)}</Text>
+                      <Text style={[s.payoutStatus, { color: statusColor }]}>{statusLabel}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </>
+          )}
+
         </ScrollView>
       )}
 
@@ -1936,13 +1974,17 @@ export default function RiderScreen({ navigation }) {
           {/* Rating hero */}
           <View style={s.perfHero}>
             <Text style={s.perfHeroLabel}>YOUR RATING</Text>
-            <Text style={s.perfHeroVal}>4.9</Text>
+            <Text style={s.perfHeroVal}>{avgRating ?? '—'}</Text>
             <View style={s.perfStars}>
-              {[1,2,3,4,5].map(i => (
-                <Ionicons key={i} name={i <= 4 ? 'star' : 'star-half'} size={20} color={LIME} />
-              ))}
+              {[1,2,3,4,5].map(i => {
+                const r = parseFloat(avgRating) || 0;
+                const name = i <= Math.floor(r) ? 'star' : i - 0.5 <= r ? 'star-half' : 'star-outline';
+                return <Ionicons key={i} name={name} size={20} color={avgRating ? LIME : MUTED} />;
+              })}
             </View>
-            <Text style={s.perfHeroSub}>Based on customer feedback</Text>
+            <Text style={s.perfHeroSub}>
+              {avgRating ? 'Based on customer feedback' : 'Complete deliveries to earn a rating'}
+            </Text>
           </View>
 
           {/* Stat grid */}
@@ -1973,10 +2015,12 @@ export default function RiderScreen({ navigation }) {
           ))}
 
           <View style={[s.perfHero, { marginTop: 24, flexDirection: 'row', gap: 16, alignItems: 'center', justifyContent: 'flex-start' }]}>
-            <Ionicons name="checkmark-circle" size={28} color={GREEN} />
+            <Ionicons name="checkmark-circle" size={28} color={completionRate >= 90 ? GREEN : AMBER} />
             <View>
               <Text style={[s.perfHeroLabel, { marginBottom: 2 }]}>COMPLETION RATE</Text>
-              <Text style={[s.perfHeroVal, { fontSize: 32, lineHeight: 36 }]}>100%</Text>
+              <Text style={[s.perfHeroVal, { fontSize: 32, lineHeight: 36 }]}>
+                {completionRate !== null ? `${completionRate}%` : '—'}
+              </Text>
             </View>
           </View>
         </ScrollView>
@@ -2721,6 +2765,14 @@ const s = StyleSheet.create({
   historyIconLg: { width: 40, height: 40, borderRadius: 14, backgroundColor: GREEN + '18', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   historyTipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderColor: '#1e1e1e' },
   historyTipTxt: { fontSize: 12, color: LIME, fontWeight: '600' },
+
+  // Payout request history row
+  payoutRow:    { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: SURFACE, borderRadius: 14, padding: 14, marginBottom: 8 },
+  payoutIcon:   { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  payoutBank:   { fontSize: 13, fontWeight: '700', color: '#ddd' },
+  payoutDate:   { fontSize: 11, color: GREY, marginTop: 2 },
+  payoutAmt:    { fontSize: 15, fontWeight: '900', color: '#fff' },
+  payoutStatus: { fontSize: 10, fontWeight: '700' },
 
   // Performance view
   perfHero: {

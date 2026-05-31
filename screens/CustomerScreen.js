@@ -1030,8 +1030,18 @@ export default function CustomerScreen({ navigation }) {
   const cancelOrder = async () => {
     orderSubRef.current?.unsubscribe(); orderSubRef.current = null;
     riderLocSubRef.current?.unsubscribe(); riderLocSubRef.current = null;
-    if (activeOrderId && orderStatus === 'pending') {
-      await supabase.from('orders').update({ status: 'cancelled' }).eq('id', activeOrderId);
+    if (activeOrderId) {
+      // If rider already accepted, reset order to pending so another rider can pick it up
+      if (orderStatus === 'on_the_way') {
+        await supabase.from('orders').update({
+          status:     'pending',
+          rider_id:   null,
+          rider_name: null,
+          rider_phone:null,
+        }).eq('id', activeOrderId);
+      } else {
+        await supabase.from('orders').update({ status: 'cancelled' }).eq('id', activeOrderId);
+      }
     }
     resetBooking();
     setScreen('home');
@@ -1527,6 +1537,14 @@ export default function CustomerScreen({ navigation }) {
             {!delivered && (finding || isScheduled) && (
               <TouchableOpacity onPress={cancelOrder} style={s.cancelBtn}>
                 <Text style={s.cancelTxt}>Cancel Order</Text>
+              </TouchableOpacity>
+            )}
+            {!delivered && onTheWay && (
+              <TouchableOpacity
+                onPress={cancelOrder}
+                style={[s.cancelBtn, { borderColor: '#ef444440', borderWidth: 1 }]}
+              >
+                <Text style={[s.cancelTxt, { color: '#ef4444' }]}>Cancel — reassign to another rider</Text>
               </TouchableOpacity>
             )}
             {delivered && tipSubmitted && (
