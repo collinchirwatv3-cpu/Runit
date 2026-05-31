@@ -444,6 +444,12 @@ export default function MerchantScreen({ navigation }) {
           'Authorization': `Bearer ${session?.access_token}`,
         },
       });
+      // Guard against HTML responses (happens when running on Expo dev server
+      // instead of Vercel — API routes only work on Vercel or via `vercel dev`)
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('API routes unavailable locally — deploy to Vercel or run `vercel dev` to test card registration.');
+      }
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed');
       if (json.action && json.fields && Platform.OS === 'web') {
@@ -476,6 +482,10 @@ export default function MerchantScreen({ navigation }) {
       },
       body: JSON.stringify({ orderId, amount, itemName: 'RunIt Delivery' }),
     });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error('Card charge API unavailable — running on Expo dev server');
+    }
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Card charge failed');
     return json;
