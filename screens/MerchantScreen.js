@@ -270,11 +270,10 @@ export default function MerchantScreen({ navigation }) {
   const [toast,            setToast]           = useState(null);     // { msg, type }
   const toastTimerRef = useRef(null);
 
-  // ── Merchant wallet ───────────────────────────────────────────────────
-  const [walletBalance, setWalletBalance] = useState(null); // null = loading
-  const [showTopup,     setShowTopup]     = useState(false);
-  const [topupAmount,   setTopupAmount]   = useState('');
-  const [topupLoading,  setTopupLoading]  = useState(false);
+  // ── Card on file ─────────────────────────────────────────────────────
+  const [cardOnFile,        setCardOnFile]        = useState(null);   // { payfast_token } or null
+  const [cardLoading,       setCardLoading]       = useState(false);
+  const [cardRegistering,   setCardRegistering]   = useState(false);
 
   // ─── Load data on mount ───────────────────────────────────────────────
   useEffect(() => {
@@ -292,21 +291,20 @@ export default function MerchantScreen({ navigation }) {
         loadOrders(uid);
         loadCustomers(uid);
         loadHours(uid);
-        loadWallet(uid);
+        loadCard(uid);
       }
     });
 
-    // Detect return from PayFast wallet top-up redirect
+    // Detect return from PayFast card registration redirect
     if (Platform.OS === 'web') {
       const params = new URLSearchParams(window.location.search);
-      const walletResult = params.get('wallet');
-      if (walletResult) {
+      const cardResult = params.get('card');
+      if (cardResult) {
         window.history.replaceState({}, '', window.location.pathname);
-        if (walletResult === 'success') {
-          // Balance will refresh once wallet loads — show a toast
-          setTimeout(() => showToast('Top-up successful! Balance updated.', 'success'), 800);
+        if (cardResult === 'success') {
+          setTimeout(() => showToast('Card registered — you can now dispatch deliveries.', 'success'), 800);
         } else {
-          setTimeout(() => showToast('Top-up cancelled.', 'error'), 800);
+          setTimeout(() => showToast('Card registration cancelled.', 'error'), 800);
         }
       }
     }
@@ -423,33 +421,32 @@ export default function MerchantScreen({ navigation }) {
     showToast('Operating hours saved', 'success');
   };
 
-  // ─── Wallet ───────────────────────────────────────────────────────────
-  const loadWallet = async (uid) => {
+  // ─── Card on file ─────────────────────────────────────────────────────
+  const loadCard = async (uid) => {
+    setCardLoading(true);
     const { data } = await supabase
-      .from('merchant_wallets')
-      .select('balance')
+      .from('merchant_payment_tokens')
+      .select('payfast_token, updated_at')
       .eq('merchant_id', uid)
       .maybeSingle();
-    setWalletBalance(data?.balance !== undefined ? parseFloat(data.balance) : 0);
+    setCardOnFile(data || null);
+    setCardLoading(false);
   };
 
-  const handleTopup = async () => {
-    const amt = parseFloat(topupAmount);
-    if (!amt || amt < 50) { showToast('Minimum top-up is R50', 'error'); return; }
-    setTopupLoading(true);
+  const handleRegisterCard = async () => {
+    setCardRegistering(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch('/api/wallet-topup-initiate', {
+      const res = await fetch('/api/card-register-initiate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token}`,
         },
-        body: JSON.stringify({ amount: amt }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed');
-      if (json.action && json.fields) {
+      if (json.action && json.fields && Platform.OS === 'web') {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = json.action;
@@ -462,11 +459,26 @@ export default function MerchantScreen({ navigation }) {
         form.submit();
         return;
       }
-      throw new Error('Invalid response from payment server');
+      throw new Error('Card registration not supported on this platform yet');
     } catch (e) {
-      showToast(e.message || 'Top-up failed', 'error');
-      setTopupLoading(false);
+      showToast(e.message || 'Card registration failed', 'error');
+      setCardRegistering(false);
     }
+  };
+
+  const chargeCard = async (orderId, amount) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch('/api/charge-card', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token}`,
+      },
+      body: JSON.stringify({ orderId, amount, itemName: 'RunIt Delivery' }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Card charge failed');
+    return json;
   };
 
   // ─── Dispatch helpers ─────────────────────────────────────────────────
@@ -513,10 +525,10 @@ export default function MerchantScreen({ navigation }) {
 
   const handleDispatch = async () => {
     if (!dispTo) return;
-    // Check wallet balance before dispatching
+    // Must have a card on file if there's a delivery fee
     const requiredAmt = dispPrice || 0;
-    if (requiredAmt > 0 && walletBalance !== null && walletBalance < requiredAmt) {
-      showToast(`Insufficient wallet balance (R${walletBalance.toFixed(2)}) — please top up first`, 'error');
+    if (requiredAmt > 0 && !cardOnFile) {
+      showToast('Please register a card first to pay for deliveries', 'error');
       return;
     }
     setDispPosting(true);
@@ -535,22 +547,35 @@ export default function MerchantScreen({ navigation }) {
       dist_km:       dispDist || null,
       package_size:  dispSize,
       notes:         dispNotes.trim() || null,
-      status:        isScheduled ? 'scheduled' : 'pending',
+      status:        isScheduled ? 'scheduled' : (requiredAmt > 0 ? 'awaiting_payment' : 'pending'),
       dispatch_at:   isScheduled ? nextOpen.toISOString() : null,
-      payment_status:'paid',
+      payment_status: requiredAmt > 0 ? 'unpaid' : 'paid',
       delivery_pin:  pin,
       customer_phone:dispCustomer?.phone || null,
     }]);
     setDispPosting(false);
     if (error) { alert(error.message); return; }
 
-    // Deduct delivery fee from merchant wallet (atomic via RPC)
-    if (requiredAmt > 0) {
-      await supabase.rpc('deduct_merchant_wallet', {
-        p_merchant_id: userId,
-        p_amount:      requiredAmt,
-      });
-      loadWallet(userId); // refresh displayed balance
+    // Charge merchant's card for the delivery fee
+    if (requiredAmt > 0 && cardOnFile) {
+      try {
+        // Get the newly created order ID
+        const { data: newOrder } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('payment_status', 'unpaid')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        if (newOrder?.id) {
+          await chargeCard(newOrder.id, requiredAmt);
+        }
+      } catch (chargeErr) {
+        showToast(`Card charge failed: ${chargeErr.message}`, 'error');
+        // Order was inserted but not paid — it stays as awaiting_payment
+        // Admin can manually resolve
+      }
     }
 
     resetDispatch();
@@ -717,25 +742,41 @@ export default function MerchantScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          {/* Wallet balance card */}
+          {/* Card on file card */}
           <TouchableOpacity
-            style={[s.walletCard, walletBalance !== null && walletBalance < 50 && { borderColor: RED + '50' }]}
-            onPress={() => setShowTopup(true)}
-            activeOpacity={0.85}
+            style={[s.walletCard, !cardOnFile && { borderColor: AMBER + '50' }]}
+            onPress={!cardOnFile ? handleRegisterCard : undefined}
+            activeOpacity={cardOnFile ? 1 : 0.85}
           >
+            <View style={[s.topupBtn, { backgroundColor: cardOnFile ? GREEN + '22' : AMBER + '22', marginRight: 14 }]}>
+              <Ionicons name={cardOnFile ? 'card' : 'card-outline'} size={20} color={cardOnFile ? GREEN : AMBER} />
+            </View>
             <View style={{ flex: 1 }}>
-              <Text style={s.walletLabel}>WALLET BALANCE</Text>
-              <Text style={s.walletBalance}>
-                R {walletBalance !== null ? parseFloat(walletBalance).toFixed(2) : '—'}
-              </Text>
-              {walletBalance !== null && walletBalance < 50 && (
-                <Text style={s.walletLow}>⚠ Low — top up to keep dispatching</Text>
+              <Text style={s.walletLabel}>PAYMENT METHOD</Text>
+              {cardLoading ? (
+                <ActivityIndicator color={LIME} size="small" style={{ alignSelf: 'flex-start', marginTop: 4 }} />
+              ) : cardOnFile ? (
+                <>
+                  <Text style={[s.walletBalance, { fontSize: 16, color: GREEN }]}>Card Registered ✓</Text>
+                  <Text style={{ fontSize: 11, color: GREY, marginTop: 2 }}>
+                    Deliveries charged automatically per dispatch
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={[s.walletBalance, { fontSize: 16, color: AMBER }]}>No Card on File</Text>
+                  <Text style={{ fontSize: 11, color: GREY, marginTop: 2 }}>Tap to register your card — R1 verification</Text>
+                </>
               )}
             </View>
-            <View style={s.topupBtn}>
-              <Ionicons name="add" size={16} color={BG} />
-              <Text style={s.topupBtnTxt}>Top Up</Text>
-            </View>
+            {!cardOnFile && (
+              <View style={[s.topupBtn, { backgroundColor: AMBER }]}>
+                {cardRegistering
+                  ? <ActivityIndicator color={BG} size="small" />
+                  : <Text style={s.topupBtnTxt}>Register</Text>
+                }
+              </View>
+            )}
           </TouchableOpacity>
 
           {/* Stats bar */}
@@ -921,57 +962,6 @@ export default function MerchantScreen({ navigation }) {
               color={toast.type === 'success' ? GREEN : toast.type === 'error' ? RED : BLUE}
             />
             <Text style={s.toastTxt}>{toast.msg}</Text>
-          </View>
-        )}
-
-        {/* Top-up modal */}
-        {showTopup && (
-          <View style={s.modalOverlay}>
-            <View style={s.modalSheet}>
-              <View style={s.modalHandle} />
-              <Text style={s.modalTitle}>Top Up Wallet</Text>
-              <Text style={s.modalSub}>Balance: <Text style={{ color: LIME, fontWeight: '800' }}>R {walletBalance !== null ? parseFloat(walletBalance).toFixed(2) : '—'}</Text></Text>
-
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginVertical: 16 }}>
-                {[100, 200, 500, 1000].map(amt => (
-                  <TouchableOpacity
-                    key={amt}
-                    style={[s.topupPreset, topupAmount === String(amt) && s.topupPresetActive]}
-                    onPress={() => setTopupAmount(String(amt))}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[s.topupPresetTxt, topupAmount === String(amt) && { color: BG }]}>R{amt}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={s.modalFieldLabel}>Or enter amount (min R50)</Text>
-              <TextInput
-                style={s.modalInput}
-                placeholder="e.g. 350"
-                placeholderTextColor={GREY}
-                keyboardType="numeric"
-                value={topupAmount}
-                onChangeText={setTopupAmount}
-              />
-
-              <View style={s.modalActions}>
-                <TouchableOpacity style={s.modalCancelBtn} onPress={() => { setShowTopup(false); setTopupAmount(''); }}>
-                  <Text style={s.modalCancelTxt}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[s.modalSubmitBtn, topupLoading && { opacity: 0.6 }]}
-                  onPress={handleTopup}
-                  disabled={topupLoading}
-                  activeOpacity={0.85}
-                >
-                  {topupLoading
-                    ? <ActivityIndicator color={BG} size="small" />
-                    : <Text style={s.modalSubmitTxt}>Pay R{topupAmount || '—'}</Text>
-                  }
-                </TouchableOpacity>
-              </View>
-            </View>
           </View>
         )}
 
