@@ -769,14 +769,33 @@ export default function CustomerScreen({ navigation }) {
         try { saved = JSON.parse(pendingRaw); } catch (_) {}
         localStorage.removeItem('runit_pending_order');
         window.history.replaceState({}, '', window.location.pathname);
+        // Restore route state immediately from cached values
+        if (saved.from)       setFrom(saved.from);
+        if (saved.to)         setTo(saved.to);
+        if (saved.dist)       setDist(saved.dist);
+        if (saved.price)      setPrice(saved.price);
+        if (saved.fromCoords) setFromCoords(saved.fromCoords);
+        if (saved.toCoords)   setToCoords(saved.toCoords);
         if (paymentResult === 'cancel') {
           if (saved.orderId) supabase.from('orders').delete().eq('id', saved.orderId).then(() => {});
         } else {
           const { orderId, pin } = saved;
           if (orderId) {
-            supabase.from('orders').select('status, delivery_pin').eq('id', orderId).single().then(({ data }) => {
-              if (data) startOrderTracking(orderId, data.delivery_pin || pin, data.status);
-            });
+            supabase.from('orders')
+              .select('status, delivery_pin, from_address, to_address, from_lat, from_lon, to_lat, to_lon, dist_km, price')
+              .eq('id', orderId)
+              .single()
+              .then(({ data }) => {
+                if (!data) return;
+                // Restore route info so tracking screen shows addresses + map
+                if (data.from_address) setFrom(data.from_address);
+                if (data.to_address)   setTo(data.to_address);
+                if (data.dist_km)      setDist(parseFloat(data.dist_km));
+                if (data.price)        setPrice(parseFloat(data.price));
+                if (data.from_lat && data.from_lon) setFromCoords({ lat: data.from_lat, lon: data.from_lon });
+                if (data.to_lat   && data.to_lon)   setToCoords({ lat: data.to_lat, lon: data.to_lon });
+                startOrderTracking(orderId, data.delivery_pin || pin, data.status);
+              });
           }
         }
       }
@@ -977,7 +996,7 @@ export default function CustomerScreen({ navigation }) {
     const orderId = insertData?.id;
 
     if (Platform.OS === 'web') {
-      localStorage.setItem('runit_pending_order', JSON.stringify({ orderId, pin }));
+      localStorage.setItem('runit_pending_order', JSON.stringify({ orderId, pin, from, to, dist, price, fromCoords, toCoords }));
       try {
         const res = await fetch('/api/payfast-initiate', {
           method: 'POST',

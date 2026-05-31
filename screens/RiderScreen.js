@@ -1040,8 +1040,9 @@ export default function RiderScreen({ navigation }) {
     setDeliveryHistory(data);
 
     // All-time average rating + completion rate (parallel)
-    const [{ data: ratingRows }, { data: cancelledRows }, { data: payoutRows }] = await Promise.all([
+    const [{ data: ratingRows }, { data: allDelivered }, { data: cancelledRows }, { data: payoutRows }] = await Promise.all([
       supabase.from('orders').select('rating').eq('rider_id', id).eq('status', 'delivered').not('rating', 'is', null),
+      supabase.from('orders').select('id').eq('rider_id', id).eq('status', 'delivered'),
       supabase.from('orders').select('id').eq('rider_id', id).eq('status', 'cancelled'),
       supabase.from('payout_requests').select('*').eq('rider_id', id).order('created_at', { ascending: false }).limit(20),
     ]);
@@ -1049,8 +1050,11 @@ export default function RiderScreen({ navigation }) {
       const avg = ratingRows.reduce((s, o) => s + (o.rating || 0), 0) / ratingRows.length;
       setAvgRating(avg.toFixed(1));
     }
-    const totalAll = (data?.length || 0) + (cancelledRows?.length || 0);
-    setCompletionRate(totalAll > 0 ? Math.round(((data?.length || 0) / totalAll) * 100) : 100);
+    // Completion rate: all-time delivered vs all-time (delivered + cancelled)
+    const totalDelivered = allDelivered?.length || 0;
+    const totalCancelled = cancelledRows?.length || 0;
+    const totalAll = totalDelivered + totalCancelled;
+    setCompletionRate(totalAll > 0 ? Math.round((totalDelivered / totalAll) * 100) : 100);
     if (payoutRows) setPayoutRequests(payoutRows);
   };
 
@@ -1101,6 +1105,7 @@ export default function RiderScreen({ navigation }) {
         status: 'pending',
         rider_id: null,
         rider_name: null,
+        rider_phone: null,
       }).eq('id', activeJob.id);
     }
     stopLocationBroadcast();
@@ -1118,6 +1123,7 @@ export default function RiderScreen({ navigation }) {
         status: 'pending',
         rider_id: null,
         rider_name: null,
+        rider_phone: null,
       }).eq('id', activeJob.id);
     }
     stopLocationBroadcast();
@@ -1557,7 +1563,7 @@ export default function RiderScreen({ navigation }) {
           <View style={s.greeting}>
             <View style={{ flex: 1 }}>
               <Text style={s.greetLabel}>RIDER DASHBOARD</Text>
-              <Text style={s.greetTitle}>{greetingText || 'Ready to earn?'}</Text>
+              <Text style={s.greetTitle}>{userName ? `Hey, ${userName.split(' ')[0]}!` : 'Ready to earn?'}</Text>
             </View>
             <View style={s.ratingPill}>
               <Ionicons name="star" size={13} color={AMBER} />
