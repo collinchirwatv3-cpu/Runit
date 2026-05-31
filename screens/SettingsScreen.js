@@ -676,7 +676,7 @@ export default function SettingsScreen({ navigation }) {
   return (
     <View style={s.container}>
       <StatusBar style="light" />
-      <TopBar />
+      <TopBar onLogoPress={() => navigation.navigate(userRole === 'rider' ? 'Rider' : userRole === 'merchant' ? 'Merchant' : 'Customer')} />
       <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <Text style={s.headline}>Settings.</Text>
 

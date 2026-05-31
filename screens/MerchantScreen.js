@@ -566,7 +566,7 @@ export default function MerchantScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar greetingText={greetingText} />
+        <TopBar greetingText={greetingText} onLogoPress={() => setView('home')} />
 
         <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
 
@@ -830,7 +830,7 @@ export default function MerchantScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar greetingText={greetingText} />
+        <TopBar greetingText={greetingText} onLogoPress={() => setView('home')} />
 
         <ScrollView style={s.scroll} contentContainerStyle={s.content} keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
 
@@ -1047,7 +1047,7 @@ export default function MerchantScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar greetingText={greetingText} />
+        <TopBar greetingText={greetingText} onLogoPress={() => setView('home')} />
 
         <ScrollView style={s.scroll} contentContainerStyle={s.content} keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
 
@@ -1194,7 +1194,7 @@ export default function MerchantScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar greetingText={greetingText} />
+        <TopBar greetingText={greetingText} onLogoPress={() => setView('home')} />
 
         <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
 
@@ -1307,7 +1307,7 @@ export default function MerchantScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar greetingText={greetingText} />
+        <TopBar greetingText={greetingText} onLogoPress={() => setView('home')} />
 
         <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
 

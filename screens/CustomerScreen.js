@@ -1102,7 +1102,7 @@ export default function CustomerScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar userName={userName} greetingText={greetingText} />
+        <TopBar userName={userName} greetingText={greetingText} onLogoPress={() => setScreen('home')} />
         <View style={s.homeContent}>
           <View>
             <Text style={s.homeTitle}>Send a</Text>
@@ -1130,7 +1130,7 @@ export default function CustomerScreen({ navigation }) {
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar userName={userName} greetingText={greetingText} />
+        <TopBar userName={userName} greetingText={greetingText} onLogoPress={() => setScreen('home')} />
         <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
           <TouchableOpacity onPress={() => setScreen('home')} style={s.backRow}>

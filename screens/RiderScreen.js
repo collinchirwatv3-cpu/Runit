@@ -1316,7 +1316,7 @@ export default function RiderScreen({ navigation }) {
   return (
     <View style={s.container}>
       <StatusBar style={view === 'active' ? 'dark' : 'light'} />
-      {view !== 'active' && <TopBar userName={userName} greetingText={greetingText} />}
+      {view !== 'active' && <TopBar userName={userName} greetingText={greetingText} onLogoPress={() => setView('home')} />}
 
       {/* ── Floating SOS button — always visible ── */}
       <SOSButton activeJob={activeJob} onBreakdown={handleBreakdown} />

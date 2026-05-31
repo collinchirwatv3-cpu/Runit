@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
 
 const LIME = '#c8f000';
 const BG = '#080808';
@@ -45,7 +45,7 @@ function _updateLastSeen() {
 
 // ─── TopBar component ─────────────────────────────────────────────────────
 // greetingText — if provided, overrides the time-of-day fallback greeting
-export default function TopBar({ userName, greetingText }) {
+export default function TopBar({ userName, greetingText, onLogoPress }) {
   function timeGreeting() {
     const h = new Date().getHours();
     if (h < 12) return 'Good morning';
@@ -59,7 +59,9 @@ export default function TopBar({ userName, greetingText }) {
   return (
     <View style={s.bar}>
       <View style={s.row}>
-        <Text style={s.logo}>RUN<Text style={{ color: LIME }}>IT</Text></Text>
+        <TouchableOpacity onPress={onLogoPress} activeOpacity={onLogoPress ? 0.6 : 1} disabled={!onLogoPress}>
+          <Text style={s.logo}>RUN<Text style={{ color: LIME }}>IT</Text></Text>
+        </TouchableOpacity>
         {displayGreeting ? (
           <Text style={s.greet} numberOfLines={1}>{displayGreeting}</Text>
         ) : null}
