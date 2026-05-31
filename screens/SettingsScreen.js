@@ -464,6 +464,145 @@ const fq = StyleSheet.create({
   resultCount:     { fontSize: 11, color: GREY, marginBottom: 8, marginLeft: 2, fontWeight: '700', letterSpacing: 0.5 },
 });
 
+// ─── Delete Account sheet ─────────────────────────────────────────────────
+
+function DeleteAccountSheet({ visible, onClose, onDeleted }) {
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting]       = useState(false);
+  const [step, setStep]               = useState(1); // 1 = warning, 2 = confirm
+
+  const reset = () => { setConfirmText(''); setStep(1); setDeleting(false); };
+  const close = () => { reset(); onClose(); };
+
+  const handleDelete = async () => {
+    if (confirmText.trim().toUpperCase() !== 'DELETE') return;
+    setDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Not signed in');
+
+      const res = await fetch('/api/delete-account', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed');
+
+      await signOut();
+      reset();
+      onDeleted();
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Could not delete account. Try again.');
+      setDeleting(false);
+    }
+  };
+
+  const canDelete = confirmText.trim().toUpperCase() === 'DELETE';
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
+      <View style={da.overlay}>
+        <View style={da.sheet}>
+          <View style={da.bar} />
+
+          {step === 1 ? (
+            <>
+              {/* Warning icon */}
+              <View style={da.iconWrap}>
+                <Ionicons name="warning" size={32} color="#ef4444" />
+              </View>
+              <Text style={da.title}>Delete Account?</Text>
+              <Text style={da.sub}>This will permanently erase everything:</Text>
+
+              <View style={da.listWrap}>
+                {[
+                  'Your profile & login credentials',
+                  'All your order history',
+                  'Saved addresses & payment methods',
+                  'Rider earnings & payout history',
+                ].map((item, i) => (
+                  <View key={i} style={da.listRow}>
+                    <Ionicons name="close-circle" size={15} color="#ef4444" />
+                    <Text style={da.listTxt}>{item}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <Text style={da.warn}>This action cannot be undone.</Text>
+
+              <TouchableOpacity style={da.nextBtn} onPress={() => setStep(2)} activeOpacity={0.85}>
+                <Text style={da.nextBtnTxt}>Continue</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={da.cancelBtn} onPress={close} activeOpacity={0.7}>
+                <Text style={da.cancelBtnTxt}>Cancel — keep my account</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <View style={da.iconWrap}>
+                <Ionicons name="trash-outline" size={32} color="#ef4444" />
+              </View>
+              <Text style={da.title}>Final Confirmation</Text>
+              <Text style={da.sub}>
+                Type <Text style={{ color: '#ef4444', fontWeight: '900' }}>DELETE</Text> below to confirm.
+              </Text>
+
+              <TextInput
+                style={[da.input, canDelete && { borderColor: '#ef4444' }]}
+                placeholder="Type DELETE"
+                placeholderTextColor="#444"
+                value={confirmText}
+                onChangeText={setConfirmText}
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+
+              <TouchableOpacity
+                style={[da.deleteBtn, !canDelete && { opacity: 0.35 }]}
+                onPress={handleDelete}
+                disabled={!canDelete || deleting}
+                activeOpacity={0.85}
+              >
+                {deleting
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <><Ionicons name="trash-outline" size={16} color="#fff" /><Text style={da.deleteBtnTxt}>Delete My Account</Text></>
+                }
+              </TouchableOpacity>
+              <TouchableOpacity style={da.cancelBtn} onPress={close} activeOpacity={0.7}>
+                <Text style={da.cancelBtnTxt}>Go back</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const da = StyleSheet.create({
+  overlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.88)', justifyContent: 'flex-end' },
+  sheet:     { backgroundColor: '#141414', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 28, paddingBottom: 48 },
+  bar:       { width: 36, height: 4, backgroundColor: '#2a2a2a', borderRadius: 2, alignSelf: 'center', marginBottom: 28 },
+  iconWrap:  { width: 64, height: 64, borderRadius: 20, backgroundColor: '#ef444418', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 18 },
+  title:     { fontSize: 26, fontWeight: '900', color: '#fff', textAlign: 'center', marginBottom: 8 },
+  sub:       { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 20, lineHeight: 21 },
+  listWrap:  { backgroundColor: '#1a1a1a', borderRadius: 16, padding: 16, gap: 12, marginBottom: 20 },
+  listRow:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  listTxt:   { fontSize: 14, color: '#ccc', fontWeight: '500', flex: 1 },
+  warn:      { fontSize: 12, color: '#ef4444', fontWeight: '700', textAlign: 'center', marginBottom: 24 },
+  input:     { backgroundColor: '#1a1a1a', borderWidth: 1.5, borderColor: '#2a2a2a', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, color: '#fff', fontSize: 18, fontWeight: '800', textAlign: 'center', letterSpacing: 4, marginBottom: 16 },
+  nextBtn:   { backgroundColor: '#1a1a1a', borderRadius: 16, height: 54, alignItems: 'center', justifyContent: 'center', marginBottom: 10, borderWidth: 1, borderColor: '#2a2a2a' },
+  nextBtnTxt:{ fontSize: 15, fontWeight: '800', color: '#fff' },
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#ef4444', borderRadius: 16, height: 54, marginBottom: 10 },
+  deleteBtnTxt: { fontSize: 15, fontWeight: '900', color: '#fff' },
+  cancelBtn: { height: 46, alignItems: 'center', justifyContent: 'center' },
+  cancelBtnTxt: { fontSize: 14, color: '#555', fontWeight: '600' },
+});
+
 // ─── Settings screen ──────────────────────────────────────────────────────
 
 export default function SettingsScreen({ navigation }) {
@@ -475,6 +614,7 @@ export default function SettingsScreen({ navigation }) {
   const [showTerms, setShowTerms] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [userRole, setUserRole]         = useState('customer');
 
   useEffect(() => {
@@ -599,6 +739,15 @@ export default function SettingsScreen({ navigation }) {
           <Text style={s.signOutTxt}>Sign Out</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={s.deleteAccountBtn}
+          onPress={() => setShowDeleteAccount(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="trash-outline" size={15} color="#555" />
+          <Text style={s.deleteAccountTxt}>Delete Account</Text>
+        </TouchableOpacity>
+
         <View style={[s.section, { marginTop: 24 }]}>
           <Text style={s.sectionTitle}>Help & FAQs</Text>
           <FaqSection role={userRole} />
@@ -611,6 +760,11 @@ export default function SettingsScreen({ navigation }) {
       <InfoSheet visible={showTerms}   onClose={() => setShowTerms(false)}   title="Terms of Service" body={TERMS_BODY} />
       <PaymentMethodsSheet visible={showPayment} onClose={() => setShowPayment(false)} />
       <FeedbackSheet visible={showFeedback} onClose={() => setShowFeedback(false)} />
+      <DeleteAccountSheet
+        visible={showDeleteAccount}
+        onClose={() => setShowDeleteAccount(false)}
+        onDeleted={() => navigation.reset({ index: 0, routes: [{ name: 'Landing' }] })}
+      />
       <BottomBar active="settings" role={userRole} onPress={(tabId) => {
         if      (tabId === 'home')     navigation.navigate(userRole === 'rider' ? 'Rider' : 'Customer');
         else if (tabId === 'orders')   navigation.navigate('Orders');
@@ -645,6 +799,12 @@ const s = StyleSheet.create({
     borderRadius: 16, height: 58,
   },
   signOutTxt: { fontSize: 16, fontWeight: '900', color: '#ef4444' },
+
+  deleteAccountBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    marginTop: 12, height: 40,
+  },
+  deleteAccountTxt: { fontSize: 13, fontWeight: '600', color: '#555' },
 
   // Sheet
   sheetBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' },
