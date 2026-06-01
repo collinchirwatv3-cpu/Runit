@@ -1301,7 +1301,7 @@ export default function CustomerScreen({ navigation }) {
             activeOpacity={0.85}
           >
             <Text style={s.primaryBtnTxt}>
-              {loading ? 'Redirecting to payment…' : price ? `Confirm & Pay  R${price}` : 'Send Now'}
+              {loading ? 'Placing order…' : price ? `Confirm Order  ·  R${price}` : 'Send Now'}
             </Text>
           </TouchableOpacity>
         </ScrollView>
