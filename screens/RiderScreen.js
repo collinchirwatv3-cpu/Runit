@@ -403,7 +403,7 @@ function maneuverArrow(type,mod){
   return'↑';
 }
 function makeRiderIcon(){
-  return L.divIcon({className:'',html:'<div style="width:24px;height:24px;background:#1565c0;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center"><div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:10px solid #fff;margin-top:-2px"></div></div>',iconSize:[24,24],iconAnchor:[12,12]});
+  return L.divIcon({className:'',html:'<div style="font-size:26px;line-height:1;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.9))">🏍️</div>',iconSize:[32,26],iconAnchor:[16,13]});
 }
 function updateNav(){
   if(!riderLL||!routeSteps.length)return;

@@ -130,7 +130,7 @@ L.polyline(routeCoords,{color:'#c8f000',weight:3,opacity:0.85}).addTo(map);
 L.polyline(routeCoords,{color:'#c8f000',weight:8,opacity:0.12}).addTo(map);
 var iconA=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(200,240,0,0.7)"></div>',iconSize:[16,16],iconAnchor:[8,8],className:''});
 var iconB=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid #080808;box-shadow:0 0 14px 3px rgba(239,68,68,0.6)"></div>',iconSize:[16,16],iconAnchor:[8,8],className:''});
-var iconR=L.divIcon({html:'<div style="width:20px;height:20px;border-radius:50%;background:#c8f000;border:3px solid #080808;box-shadow:0 2px 10px rgba(0,0,0,0.9),0 0 18px rgba(200,240,0,0.5);"></div>',iconSize:[20,20],iconAnchor:[10,10],className:''});
+var iconR=L.divIcon({html:'<div style="font-size:22px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.8));transform:scaleX(-1)">🏍️</div>',iconSize:[28,24],iconAnchor:[14,12],className:''});
 L.marker(A,{icon:iconA}).bindTooltip(${JSON.stringify(fromLabel)},{permanent:true,direction:'top',className:'tip',offset:[0,-10]}).addTo(map);
 L.marker(B,{icon:iconB}).bindTooltip(${JSON.stringify(toLabel)},{permanent:true,direction:'bottom',className:'tip',offset:[0,10]}).addTo(map);
 map.fitBounds(L.latLngBounds([A,B]).pad(0.35));
