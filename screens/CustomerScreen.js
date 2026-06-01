@@ -973,8 +973,8 @@ export default function CustomerScreen({ navigation }) {
       .insert([{
         from_address: from, to_address: to,
         price: price || 0,
-        status: 'awaiting_payment',
-        payment_status: 'unpaid',
+        status: 'pending',         // PAYFAST DISABLED: set to awaiting_payment when live
+        payment_status: 'paid',    // PAYFAST DISABLED: set to unpaid when live
         user_id: userId,
         package_size: packageSize,
         dist_km: dist,
@@ -995,6 +995,13 @@ export default function CustomerScreen({ navigation }) {
 
     const orderId = insertData?.id;
 
+    // ── PAYFAST DISABLED — re-enable once credentials are live ──────────
+    // To re-enable: uncomment the PayFast block below and remove the two
+    // lines directly beneath this comment.
+    await supabase.from('orders').update({ status: 'pending', payment_status: 'paid' }).eq('id', orderId);
+    startOrderTracking(orderId, pin);
+
+    /* PAYFAST BLOCK — uncomment when credentials are ready
     if (Platform.OS === 'web') {
       localStorage.setItem('runit_pending_order', JSON.stringify({ orderId, pin, from, to, dist, price, fromCoords, toCoords }));
       try {
@@ -1009,7 +1016,6 @@ export default function CustomerScreen({ navigation }) {
         });
         const json = await res.json();
         if (json.action && json.fields) {
-          // POST form to PayFast (required — GET URLs are rejected)
           const form = document.createElement('form');
           form.method = 'POST';
           form.action = json.action;
@@ -1024,16 +1030,19 @@ export default function CustomerScreen({ navigation }) {
           form.submit();
           return;
         }
-      } catch (_) {}
-      // PayFast not configured — activate order directly (dev/staging fallback)
-      await supabase.from('orders').update({ status: 'pending', payment_status: 'paid' }).eq('id', orderId);
-      fetch('/api/notify-riders', { method: 'POST' }).catch(() => {});
+        throw new Error(json.error || 'Payment gateway not configured');
+      } catch (err) {
+        setLoading(false);
+        if (orderId) supabase.from('orders').delete().eq('id', orderId).then(() => {});
+        localStorage.removeItem('runit_pending_order');
+        Alert.alert('Payment Error', err.message || 'Could not connect to payment gateway. Please try again.');
+        return;
+      }
     } else {
       await supabase.from('orders').update({ status: 'pending', payment_status: 'paid' }).eq('id', orderId);
-      fetch('/api/notify-riders', { method: 'POST' }).catch(() => {});
     }
-
     startOrderTracking(orderId, pin);
+    END PAYFAST BLOCK */
   };
 
   const subscribeRiderLocation = (orderId) => {
