@@ -905,15 +905,28 @@ export default function RiderScreen({ navigation }) {
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'orders',
       }, (p) => {
-        // ── Admin cancelled the rider's active job ──────────────────────────
-        if (p.new.status === 'cancelled' && activeJobRef.current?.id === p.new.id) {
-          stopLocationBroadcast();
-          _setActiveJob(null);
-          setPinInput('');
-          setPinError(false);
-          setView('home');
-          showToast('This order was cancelled by admin.');
-          return;
+        // ── Active job was cancelled or reset — kick rider back to home ───────
+        if (activeJobRef.current?.id === p.new.id) {
+          if (p.new.status === 'cancelled') {
+            stopLocationBroadcast();
+            _setActiveJob(null);
+            setPinInput('');
+            setPinError(false);
+            setView('home');
+            showToast('This order was cancelled by admin.');
+            return;
+          }
+          if (p.new.status === 'pending' && p.old?.status === 'on_the_way') {
+            // Customer cancelled while rider was en route — reset to home
+            stopLocationBroadcast();
+            _setActiveJob(null);
+            setPinInput('');
+            setPinError(false);
+            setView('home');
+            playAlert();
+            showToast('Customer cancelled — order returned to the queue.');
+            return;
+          }
         }
         if (p.new.status !== 'pending') {
           // Order no longer available — remove from job list
