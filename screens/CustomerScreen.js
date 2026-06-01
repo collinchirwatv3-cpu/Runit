@@ -968,7 +968,8 @@ export default function CustomerScreen({ navigation }) {
 
     const pin = Math.floor(100000 + Math.random() * 900000).toString();
 
-    const { data: insertData, error } = await supabase
+    // Insert the order (no .select() — avoids RLS issues on the return query)
+    const { error: insertError } = await supabase
       .from('orders')
       .insert([{
         from_address: from, to_address: to,
@@ -986,14 +987,31 @@ export default function CustomerScreen({ navigation }) {
         to_lat: toCoords?.lat || null,
         to_lon: toCoords?.lon || null,
         customer_phone: userPhone || null,
-      }])
+      }]);
+
+    if (insertError) {
+      setLoading(false);
+      Alert.alert('Error', insertError.message);
+      return;
+    }
+
+    // Fetch the newly created order ID using the unique delivery pin
+    const { data: orderRow, error: fetchError } = await supabase
+      .from('orders')
       .select('id')
+      .eq('user_id', userId)
+      .eq('delivery_pin', pin)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single();
 
     setLoading(false);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (fetchError || !orderRow?.id) {
+      Alert.alert('Error', 'Order placed but could not track it. Please contact support.');
+      return;
+    }
 
-    const orderId = insertData?.id;
+    const orderId = orderRow.id;
 
     // ── PAYFAST DISABLED — re-enable once credentials are live ──────────
     // To re-enable: uncomment the PayFast block below and remove this line.
