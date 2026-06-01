@@ -996,9 +996,7 @@ export default function CustomerScreen({ navigation }) {
     const orderId = insertData?.id;
 
     // ── PAYFAST DISABLED — re-enable once credentials are live ──────────
-    // To re-enable: uncomment the PayFast block below and remove the two
-    // lines directly beneath this comment.
-    await supabase.from('orders').update({ status: 'pending', payment_status: 'paid' }).eq('id', orderId);
+    // To re-enable: uncomment the PayFast block below and remove this line.
     startOrderTracking(orderId, pin);
 
     /* PAYFAST BLOCK — uncomment when credentials are ready
