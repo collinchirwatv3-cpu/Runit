@@ -2396,69 +2396,72 @@ export default function RiderScreen({ navigation }) {
 
 const jb = StyleSheet.create({
   wrap: {
-    position: 'absolute', top: 82, left: 16, right: 16, zIndex: 300,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5, shadowRadius: 20, elevation: 20,
+    position: 'absolute', top: 82, left: 12, right: 12, zIndex: 300,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.6, shadowRadius: 28, elevation: 24,
   },
   inner: {
     flexDirection: 'row', backgroundColor: '#141414',
-    borderRadius: 20, overflow: 'hidden',
-    borderWidth: 1, borderColor: '#222',
+    borderRadius: 24, overflow: 'hidden',
+    borderWidth: 1, borderColor: '#2a2a2a',
   },
-  accent: { width: 4, backgroundColor: LIME },
-  body: { flex: 1, padding: 14 },
+  accent: { width: 5, backgroundColor: LIME },
+  body: { flex: 1, padding: 16 },
 
-  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   badge: {
     backgroundColor: LIME + '20', borderWidth: 1, borderColor: LIME + '40',
-    borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4,
   },
-  badgeTxt: { fontSize: 9, fontWeight: '900', color: LIME, letterSpacing: 2 },
+  badgeTxt: { fontSize: 10, fontWeight: '900', color: LIME, letterSpacing: 2 },
   sizeBadge: {
     backgroundColor: '#1e1e1e', borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 3,
+    paddingHorizontal: 10, paddingVertical: 4,
   },
-  sizeTxt: { fontSize: 10, fontWeight: '700', color: '#aaa' },
+  sizeTxt: { fontSize: 12, fontWeight: '700', color: '#aaa' },
   closeBtn: {
-    width: 30, height: 30, borderRadius: 15,
+    width: 40, height: 40, borderRadius: 20,          // ← bigger hit target
     backgroundColor: '#1e1e1e', alignItems: 'center', justifyContent: 'center',
   },
 
-  payRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  pay: { fontSize: 30, fontWeight: '900', color: GREEN },
+  payRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  pay: { fontSize: 42, fontWeight: '900', color: GREEN, letterSpacing: -1 }, // ← massive, glanceable
   tipBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: GREEN + '18', borderRadius: 10,
-    paddingHorizontal: 7, paddingVertical: 3,
+    paddingHorizontal: 9, paddingVertical: 4,
   },
-  tipTxt: { fontSize: 11, fontWeight: '800', color: GREEN },
+  tipTxt: { fontSize: 13, fontWeight: '800', color: GREEN },
 
-  routeRow: { marginBottom: 8 },
-  routeStop: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 },
-  routeDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  routeAddr: { fontSize: 13, fontWeight: '700', color: '#fff', flex: 1 },
-  routeLine: { width: 1, height: 10, backgroundColor: '#2a2a2a', marginLeft: 3, marginBottom: 3 },
+  routeRow: { marginBottom: 10 },
+  routeStop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  routeDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  routeAddr: { fontSize: 15, fontWeight: '700', color: '#fff', flex: 1 }, // ← larger
+  routeLine: { width: 1.5, height: 12, backgroundColor: '#2a2a2a', marginLeft: 4, marginBottom: 4 },
 
-  metaRow: { flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap' },
+  metaRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
   metaChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#1e1e1e', borderRadius: 8,
-    paddingHorizontal: 7, paddingVertical: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: '#1e1e1e', borderRadius: 10,
+    paddingHorizontal: 10, paddingVertical: 6,          // ← taller chips
   },
-  metaTxt: { fontSize: 11, fontWeight: '600', color: GREY },
+  metaTxt: { fontSize: 13, fontWeight: '600', color: GREY },
 
   notesRow: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
-    backgroundColor: AMBER + '10', borderRadius: 10,
-    padding: 8, marginBottom: 8,
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: AMBER + '10', borderRadius: 12,
+    padding: 10, marginBottom: 10,
   },
-  notesTxt: { fontSize: 12, color: AMBER, flex: 1, fontWeight: '600' },
+  notesTxt: { fontSize: 13, color: AMBER, flex: 1, fontWeight: '600' },
 
+  // ← ACCEPT: full-width, 68px tall — can't miss it
   acceptBtn: {
-    backgroundColor: LIME, borderRadius: 14, height: 42,
+    backgroundColor: LIME, borderRadius: 18, height: 68,
     alignItems: 'center', justifyContent: 'center',
+    shadowColor: LIME, shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4, shadowRadius: 16, elevation: 10,
   },
-  acceptTxt: { fontSize: 14, fontWeight: '900', color: BG },
+  acceptTxt: { fontSize: 18, fontWeight: '900', color: BG, letterSpacing: 0.5 },
 });
 
 const sos = StyleSheet.create({
@@ -2661,13 +2664,13 @@ const s = StyleSheet.create({
   tripScreen:  { flex: 1, position: 'relative' },
   tripMapArea: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   tripPayChip: {
-    position: 'absolute', top: 14, left: 14, zIndex: 10,
-    backgroundColor: 'rgba(8,8,8,0.85)', borderRadius: 16,
-    paddingHorizontal: 14, paddingVertical: 10,
-    borderWidth: 1, borderColor: 'rgba(200,240,0,0.35)',
+    position: 'absolute', top: 16, left: 16, zIndex: 10,
+    backgroundColor: 'rgba(8,8,8,0.92)', borderRadius: 20,
+    paddingHorizontal: 18, paddingVertical: 14,           // ← more padding
+    borderWidth: 1.5, borderColor: 'rgba(200,240,0,0.4)',
   },
-  tripPayChipAmt: { fontSize: 22, fontWeight: '900', color: LIME, letterSpacing: -0.5 },
-  tripPayChipMeta: { fontSize: 11, color: '#5a8020', fontWeight: '600', marginTop: 2 },
+  tripPayChipAmt: { fontSize: 28, fontWeight: '900', color: LIME, letterSpacing: -0.5 }, // ← bigger
+  tripPayChipMeta: { fontSize: 12, color: '#5a8020', fontWeight: '700', marginTop: 3 },
   tripStatusChip: {
     position: 'absolute', top: 14, right: 14, zIndex: 10,
     flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -2693,40 +2696,40 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   tripPillBar: {
-    width: 36, height: 4, borderRadius: 2,
-    backgroundColor: '#333', alignSelf: 'center', marginBottom: 10,
+    width: 44, height: 5, borderRadius: 3,              // ← wider, more visible
+    backgroundColor: '#3a3a3a', alignSelf: 'center', marginBottom: 12,
   },
   tripSheetPeek: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingBottom: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingBottom: 10,
   },
   tripSheetPeekAddr: {
-    flex: 1, fontSize: 14, fontWeight: '700', color: '#ddd',
+    flex: 1, fontSize: 18, fontWeight: '800', color: '#fff', // ← big + bold, readable while riding
   },
   tripSheetScroll:       { flex: 1 },
-  tripSheetScrollContent:{ paddingHorizontal: 20, paddingBottom: 32 },
+  tripSheetScrollContent:{ paddingHorizontal: 20, paddingBottom: 40 },
 
-  tripRouteBlock: { marginBottom: 10 },
-  tripStop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  tripDot: { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
-  tripStopLbl: { fontSize: 9, fontWeight: '700', color: MUTED, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 2 },
-  tripStopAddr: { fontSize: 14, fontWeight: '700', color: '#ddd' },
-  tripConnector: { width: 1, height: 12, backgroundColor: '#2a2a2a', marginLeft: 4, marginVertical: 2 },
+  tripRouteBlock: { marginBottom: 14 },
+  tripStop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  tripDot: { width: 12, height: 12, borderRadius: 6, flexShrink: 0 },
+  tripStopLbl: { fontSize: 10, fontWeight: '700', color: MUTED, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 3 },
+  tripStopAddr: { fontSize: 17, fontWeight: '800', color: '#fff' },   // ← larger address text
+  tripConnector: { width: 1.5, height: 14, backgroundColor: '#2a2a2a', marginLeft: 5, marginVertical: 3 },
   tripNotesRow: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-    backgroundColor: 'rgba(200,240,0,0.05)', borderRadius: 12,
-    paddingHorizontal: 12, paddingVertical: 8, marginBottom: 6,
-    borderWidth: 1, borderColor: 'rgba(200,240,0,0.12)',
+    backgroundColor: 'rgba(200,240,0,0.06)', borderRadius: 14,
+    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 10,
+    borderWidth: 1, borderColor: 'rgba(200,240,0,0.15)',
   },
-  tripNotesTxt: { flex: 1, fontSize: 12, color: '#bbb', fontWeight: '500', lineHeight: 18 },
+  tripNotesTxt: { flex: 1, fontSize: 14, color: '#ccc', fontWeight: '500', lineHeight: 20 },
   waBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: '#25d366', borderRadius: 14, paddingVertical: 13,
-    marginHorizontal: 20, marginBottom: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    backgroundColor: '#25d366', borderRadius: 16, paddingVertical: 17, // ← taller
+    marginHorizontal: 20, marginBottom: 10,
   },
-  waBtnTxt: { fontSize: 14, fontWeight: '800', color: '#fff' },
-  tripPinRow: { alignItems: 'center', marginTop: 10, marginBottom: 4 },
-  tripPinLbl: { fontSize: 9, fontWeight: '800', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 10 },
+  waBtnTxt: { fontSize: 16, fontWeight: '900', color: '#fff' },
+  tripPinRow: { alignItems: 'center', marginTop: 12, marginBottom: 6 },
+  tripPinLbl: { fontSize: 11, fontWeight: '800', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 14 },
 
   // Active delivery (legacy — kept for style refs)
   activeHero: {
@@ -2738,13 +2741,13 @@ const s = StyleSheet.create({
   activeHeroPay: { fontSize: 64, fontWeight: '900', color: LIME, letterSpacing: -2, lineHeight: 68 },
   activeHeroSub: { fontSize: 13, color: '#5a8020', fontWeight: '600', marginTop: 4 },
   deliveredBtn: {
-    backgroundColor: LIME, borderRadius: 18, height: 60,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 24,
-    shadowColor: LIME, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 24, elevation: 12,
+    backgroundColor: LIME, borderRadius: 22, height: 76,  // ← tall, impossible to miss
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 20,
+    shadowColor: LIME, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.45, shadowRadius: 28, elevation: 16,
   },
-  deliveredBtnTxt: { fontSize: 17, fontWeight: '900', color: BG },
-  backToHomeBtn: { alignItems: 'center', paddingVertical: 16 },
-  backToHomeTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
+  deliveredBtnTxt: { fontSize: 20, fontWeight: '900', color: BG, letterSpacing: 0.3 },
+  backToHomeBtn: { alignItems: 'center', paddingVertical: 22 }, // ← big hit area
+  backToHomeTxt: { fontSize: 15, color: GREY, fontWeight: '600' },
 
   // Notes
   notesCard: {
@@ -2759,15 +2762,15 @@ const s = StyleSheet.create({
   pinEntryCard: { backgroundColor: SURFACE, borderRadius: 20, padding: 20, alignItems: 'center', marginBottom: 20 },
   pinEntryLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 6 },
   pinEntryHint: { fontSize: 13, color: GREY, marginBottom: 20 },
-  pinBoxRow: { flexDirection: 'row', gap: 7, marginBottom: 4 },
+  pinBoxRow: { flexDirection: 'row', gap: 10, marginBottom: 6 },
   pinBox: {
-    width: 46, height: 58, borderRadius: 12,
-    backgroundColor: '#0e0e0e', borderWidth: 2, borderColor: '#2a2a2a',
+    width: 62, height: 70, borderRadius: 16,   // ← bigger, glove-friendly
+    backgroundColor: '#0e0e0e', borderWidth: 2.5, borderColor: '#2a2a2a',
     alignItems: 'center', justifyContent: 'center',
   },
   pinBoxActive: { borderColor: LIME },
   pinBoxError: { borderColor: '#ef4444' },
-  pinDigit: { fontSize: 26, fontWeight: '900', color: '#fff' },
+  pinDigit: { fontSize: 32, fontWeight: '900', color: '#fff' }, // ← bigger digit
   pinHiddenInput: { position: 'absolute', opacity: 0, width: 1, height: 1 },
   pinErrorTxt: { fontSize: 12, color: '#ef4444', fontWeight: '600', marginTop: 8 },
 
