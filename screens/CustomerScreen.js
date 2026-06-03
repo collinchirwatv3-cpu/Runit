@@ -676,6 +676,7 @@ const am = StyleSheet.create({
 
 export default function CustomerScreen({ navigation }) {
   const [screen, setScreen] = useState('home');
+  const [homeMapCenter, setHomeMapCenter] = useState({ lat: -33.9249, lon: 18.4241 }); // Cape Town default
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [packageSize, setPackageSize] = useState('small');
@@ -758,6 +759,15 @@ export default function CustomerScreen({ navigation }) {
       setGreetingText(getSmartGreeting(user));
       if (uid) registerPush(uid);
     });
+
+    // Silently grab location to centre the home screen background map
+    if (Platform.OS === 'web' && navigator?.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setHomeMapCenter({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        () => {}, // silently fall back to Cape Town
+        { timeout: 6000, maximumAge: 300000 }
+      );
+    }
 
     // Detect return from PayFast payment redirect
     if (Platform.OS === 'web') {
@@ -1128,11 +1138,37 @@ export default function CustomerScreen({ navigation }) {
 
   // ── HOME ──────────────────────────────────────────────────────────────
   if (screen === 'home') {
+    const bgMapHtml = `<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>*{margin:0;padding:0}html,body,#map{width:100%;height:100%;background:#080808}.leaflet-control-attribution,.leaflet-control-zoom{display:none}</style>
+</head><body><div id="map"></div><script>
+var map=L.map('map',{zoomControl:false,attributionControl:false,dragging:false,touchZoom:false,scrollWheelZoom:false,doubleClickZoom:false,keyboard:false});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:18,subdomains:'abcd'}).addTo(map);
+map.setView([${homeMapCenter.lat},${homeMapCenter.lon}],14);
+</script></body></html>`;
+
     return (
       <View style={s.container}>
         <StatusBar style="light" />
+
+        {/* ── Full-screen background map ── */}
+        {Platform.OS === 'web' ? (
+          <iframe
+            srcDoc={bgMapHtml}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', border: 'none', zIndex: 0 }}
+            sandbox="allow-scripts"
+          />
+        ) : null}
+
+        {/* Dark gradient overlays so text stays readable */}
+        <View style={s.homeMapGradTop} pointerEvents="none" />
+        <View style={s.homeMapGradBottom} pointerEvents="none" />
+
         <TopBar userName={userName} greetingText={greetingText} onLogoPress={() => setScreen('home')} />
-        <View style={s.homeContent}>
+
+        <View style={[s.homeContent, { zIndex: 2 }]}>
           <View style={s.homeHero}>
             <Text style={s.homeEyebrow}>RUNIT DELIVERY</Text>
             <Text style={s.homeTitle}>Send anything,{'\n'}<Text style={s.homeTitleAccent}>anywhere.</Text></Text>
@@ -1148,6 +1184,7 @@ export default function CustomerScreen({ navigation }) {
           </View>
           <View style={{ height: 20 }} />
         </View>
+
         <BottomBar active="home" role="customer" onPress={handleBottomBar} />
         {toastMsg ? <View style={s.toast}><Text style={s.toastTxt}>{toastMsg}</Text></View> : null}
       </View>
@@ -1677,6 +1714,22 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1, backgroundColor: BG, height: '100%' },
   scrollContent: { paddingHorizontal: 24, paddingTop: 90, paddingBottom: 40 },
+
+  // Home map gradients
+  homeMapGradTop: {
+    position: 'absolute', top: 0, left: 0, right: 0, height: 220, zIndex: 1,
+    background: Platform.OS === 'web'
+      ? 'linear-gradient(to bottom, rgba(8,8,8,0.95) 0%, rgba(8,8,8,0.6) 60%, transparent 100%)'
+      : undefined,
+    backgroundColor: Platform.OS !== 'web' ? 'transparent' : undefined,
+  },
+  homeMapGradBottom: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, height: 320, zIndex: 1,
+    background: Platform.OS === 'web'
+      ? 'linear-gradient(to top, rgba(8,8,8,0.97) 0%, rgba(8,8,8,0.7) 50%, transparent 100%)'
+      : undefined,
+    backgroundColor: Platform.OS !== 'web' ? 'transparent' : undefined,
+  },
 
   homeContent: { flex: 1, paddingHorizontal: 28, justifyContent: 'space-between', paddingTop: 106, paddingBottom: 110 },
   homeHero: { gap: 8 },
