@@ -1334,114 +1334,111 @@ export default function CustomerScreen({ navigation }) {
     const finding   = orderStatus === 'pending';
     const onTheWay  = orderStatus === 'on_the_way';
     const delivered = orderStatus === 'delivered';
-    const statusLabel = isScheduled ? 'Scheduled' : awaitingPayment ? 'Confirming Payment' : finding ? 'Finding Rider' : onTheWay ? 'On the Way' : 'Delivered';
+
+    // Progress step helper
+    const stepDone   = (cond) => cond ? LIME       : '#1e1e1e';
+    const stepActive = (cond) => cond ? LIME + '30' : '#1e1e1e';
 
     return (
       <View style={s.container}>
         <StatusBar style="light" />
-        <TopBar userName={userName} greetingText={greetingText} />
+        <TopBar userName={userName} greetingText={greetingText} onLogoPress={() => { if (delivered) newOrder(); }} />
         <ScrollView style={s.scroll} contentContainerStyle={[s.scrollContent, { alignItems: 'center' }]} showsVerticalScrollIndicator={false}>
 
-          <Text style={[s.trackStatus, { alignSelf: 'flex-start' }]}>{statusLabel}</Text>
+          {/* ── 1. TRIP PROGRESS BAR ── */}
+          <View style={s.progressBar}>
+            {/* Step 1 */}
+            <View style={s.progressStep}>
+              <View style={[s.progressDot, { backgroundColor: stepDone(finding || onTheWay || delivered) }]}>
+                {(onTheWay || delivered)
+                  ? <Ionicons name="checkmark" size={10} color={BG} />
+                  : finding && <View style={s.progressDotPulse} />}
+              </View>
+              <Text style={[s.progressLbl, finding && { color: LIME }]}>Finding</Text>
+            </View>
+            <View style={[s.progressLine, { backgroundColor: (onTheWay || delivered) ? LIME : '#1e1e1e' }]} />
+            {/* Step 2 */}
+            <View style={s.progressStep}>
+              <View style={[s.progressDot, { backgroundColor: stepDone(onTheWay || delivered) }]}>
+                {delivered
+                  ? <Ionicons name="checkmark" size={10} color={BG} />
+                  : onTheWay && <View style={s.progressDotPulse} />}
+              </View>
+              <Text style={[s.progressLbl, onTheWay && { color: LIME }]}>En Route</Text>
+            </View>
+            <View style={[s.progressLine, { backgroundColor: delivered ? LIME : '#1e1e1e' }]} />
+            {/* Step 3 */}
+            <View style={s.progressStep}>
+              <View style={[s.progressDot, { backgroundColor: stepDone(delivered) }]}>
+                {delivered && <Ionicons name="checkmark" size={10} color={BG} />}
+              </View>
+              <Text style={[s.progressLbl, delivered && { color: LIME }]}>Delivered</Text>
+            </View>
+          </View>
 
-          {/* Rider name banner — shown once rider accepts */}
-          {onTheWay && riderName && (
-            <View style={s.riderNameCard}>
-              <View style={s.riderNameAvatar}>
-                {riderPhoto ? (
-                  <Image source={{ uri: riderPhoto }} style={s.riderNameAvatarImg} />
-                ) : (
-                  <Text style={s.riderNameInitials}>
-                    {riderName.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')}
-                  </Text>
-                )}
+          {/* ── 2. RIDER CARD — animates in when rider accepts ── */}
+          {onTheWay && (
+            <View style={s.riderCard}>
+              <View style={s.riderCardAvatar}>
+                {riderPhoto
+                  ? <Image source={{ uri: riderPhoto }} style={s.riderCardAvatarImg} />
+                  : <Text style={s.riderCardInitials}>
+                      {(riderName || 'R').trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')}
+                    </Text>
+                }
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.riderNameTxt}>{riderName}</Text>
-                <Text style={s.riderNameSub}>is on the way to collect your parcel</Text>
+                <Text style={s.riderCardName}>{riderName || 'Rider en route'}</Text>
+                <Text style={s.riderCardSub}>On the way to collect your parcel</Text>
               </View>
-              {riderRating && (
-                <View style={s.riderNameRating}>
-                  <Ionicons name="star" size={12} color="#f59e0b" />
-                  <Text style={s.riderNameRatingTxt}>{riderRating}</Text>
+              <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                {riderRating && (
+                  <View style={s.riderCardRating}>
+                    <Ionicons name="star" size={11} color="#f59e0b" />
+                    <Text style={s.riderCardRatingTxt}>{riderRating}</Text>
+                  </View>
+                )}
+                {eta && (
+                  <View style={s.etaChip}>
+                    <Ionicons name="time-outline" size={11} color={LIME} />
+                    <Text style={s.etaChipTxt}>~{eta} min</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Big circle — hidden when delivered (receipt takes over) */}
+          {!delivered && (
+            <View style={s.trackBtnWrap}>
+              {!onTheWay && <PulseRing delay={0} size={200} />}
+              {!onTheWay && <PulseRing delay={800} size={200} />}
+              <View style={[s.trackCircle, onTheWay && { shadowOpacity: 0.25 }]}>
+                {onTheWay && eta
+                  ? <><Text style={s.trackEta}>{eta}</Text><Text style={s.trackEtaUnit}>est. min</Text></>
+                  : <Ionicons name="navigate-circle" size={42} color={BG} />
+                }
+              </View>
+            </View>
+          )}
+
+          {/* ── 3. LIVE MAP with floating ETA chip ── */}
+          {onTheWay && fromCoords && toCoords && routeCoords && (
+            <View style={{ width: '100%', position: 'relative', marginBottom: 16 }}>
+              <RouteMap
+                fromCoords={fromCoords} toCoords={toCoords}
+                routeCoords={routeCoords} fromLabel={from} toLabel={to}
+                riderLocation={riderLocation}
+              />
+              {eta && (
+                <View style={s.mapEtaChip}>
+                  <Text style={s.mapEtaChipTxt}>🏍️  ~{eta} min away</Text>
                 </View>
               )}
             </View>
           )}
 
-          {/* Big circle */}
-          <View style={s.trackBtnWrap}>
-            {!delivered && <PulseRing delay={0} size={200} />}
-            {!delivered && <PulseRing delay={800} size={200} />}
-            <View style={[s.trackCircle, delivered && s.trackCircleDone]}>
-              {delivered ? (
-                <Text style={s.trackEta}>✓</Text>
-              ) : onTheWay && eta ? (
-                <><Text style={s.trackEta}>{eta}</Text><Text style={s.trackEtaUnit}>est. min</Text></>
-              ) : (
-                <Ionicons name="navigate-circle" size={42} color={LIME} />
-              )}
-            </View>
-          </View>
-
-          {/* 3-digit PIN — shown until delivered */}
-          {!delivered && deliveryPin && (
-            <View style={s.pinCard}>
-              <Text style={s.pinCardLabel}>RECIPIENT PIN</Text>
-              <Text style={s.pinCardHint}>
-                Share this with the person <Text style={{ color: '#fff', fontWeight: '800' }}>receiving</Text> the package.{'\n'}
-                The rider will ask them to enter it on delivery.
-              </Text>
-              <View style={s.pinBoxRow}>
-                {deliveryPin.split('').map((digit, i) => (
-                  <View key={i} style={s.pinBox}>
-                    <Text style={s.pinDigit}>{digit}</Text>
-                  </View>
-                ))}
-              </View>
-              <TouchableOpacity
-                style={s.sharePinBtn}
-                activeOpacity={0.8}
-                onPress={() => Share.share({
-                  message: `Your RunIt delivery PIN is: ${deliveryPin}\n\nWhen the rider arrives, they'll ask you to enter this on their phone to confirm receipt.`,
-                  title: 'RunIt Delivery PIN',
-                })}
-              >
-                <Ionicons name="share-social-outline" size={16} color={BG} />
-                <Text style={s.sharePinTxt}>Share PIN with Recipient</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Route summary */}
-          {dist && (
-            <View style={[s.trackRoute, { width: '100%' }]}>
-              <View style={s.trackRouteRow}>
-                <View style={[s.trackDot, { backgroundColor: LIME }]} />
-                <Text style={s.trackAddr} numberOfLines={1}>{from}</Text>
-              </View>
-              <View style={s.trackConnector}>
-                <View style={s.trackConnLine} />
-                <Text style={s.trackDistLabel}>{dist} km · ~{eta} min</Text>
-                <View style={s.trackConnLine} />
-              </View>
-              <View style={s.trackRouteRow}>
-                <View style={[s.trackDot, { backgroundColor: '#ef4444' }]} />
-                <Text style={s.trackAddr} numberOfLines={1}>{to}</Text>
-              </View>
-            </View>
-          )}
-
-          {/* Live map — shown when rider is en route */}
-          {onTheWay && fromCoords && toCoords && routeCoords && (
-            <RouteMap
-              fromCoords={fromCoords} toCoords={toCoords}
-              routeCoords={routeCoords} fromLabel={from} toLabel={to}
-              riderLocation={riderLocation}
-            />
-          )}
-
-          {/* Status card */}
+          {/* Scheduled / Finding status cards */}
           {isScheduled && (
             <View style={[s.driverCard, { width: '100%', borderColor: '#3b82f630', borderWidth: 1 }]}>
               <View style={[s.driverAvatar, { backgroundColor: '#3b82f620' }]}>
@@ -1449,7 +1446,7 @@ export default function CustomerScreen({ navigation }) {
               </View>
               <View style={s.driverInfo}>
                 <Text style={s.driverName}>Order Scheduled</Text>
-                <Text style={s.driverBike}>Will dispatch at the merchant's next opening time</Text>
+                <Text style={s.driverBike}>Will dispatch at opening time</Text>
               </View>
             </View>
           )}
@@ -1464,39 +1461,104 @@ export default function CustomerScreen({ navigation }) {
               </View>
             </View>
           )}
-          {onTheWay && (
-            <View style={[s.driverCard, { width: '100%' }]}>
-              <View style={s.driverAvatar}>
-                {riderPhoto ? (
-                  <Image source={{ uri: riderPhoto }} style={s.driverAvatarImg} />
-                ) : riderName ? (
-                  <Text style={s.driverAvatarInitials}>
-                    {riderName.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')}
-                  </Text>
-                ) : (
-                  <Ionicons name="navigate-circle-outline" size={24} color={LIME} />
-                )}
+
+          {/* ── 4. POST-TRIP RECEIPT ── */}
+          {delivered && (
+            <View style={s.receiptCard}>
+              <View style={s.receiptHeader}>
+                <View style={s.receiptCheck}>
+                  <Ionicons name="checkmark" size={20} color={BG} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.receiptTitle}>Delivered!</Text>
+                  <Text style={s.receiptSub}>Package successfully delivered</Text>
+                </View>
               </View>
-              <View style={s.driverInfo}>
-                <Text style={s.driverName}>{riderName || 'Rider En Route'}</Text>
-                <Text style={s.driverBike}>Blue dot on map = your rider</Text>
-              </View>
-              {riderRating && (
-                <View style={s.driverRating}>
-                  <Ionicons name="star" size={12} color="#f59e0b" />
-                  <Text style={s.driverRatingTxt}>{riderRating}</Text>
+              {from && to && (
+                <View style={s.receiptRoute}>
+                  <View style={s.receiptRouteRow}>
+                    <View style={[s.receiptDot, { backgroundColor: LIME }]} />
+                    <Text style={s.receiptAddr} numberOfLines={1}>{from}</Text>
+                  </View>
+                  <View style={{ width: 1.5, height: 14, backgroundColor: '#2a2a2a', marginLeft: 5.5 }} />
+                  <View style={s.receiptRouteRow}>
+                    <View style={[s.receiptDot, { backgroundColor: '#ef4444' }]} />
+                    <Text style={s.receiptAddr} numberOfLines={1}>{to}</Text>
+                  </View>
                 </View>
               )}
+              <View style={s.receiptStats}>
+                {dist && (
+                  <View style={s.receiptStat}>
+                    <Text style={s.receiptStatVal}>{dist} km</Text>
+                    <Text style={s.receiptStatLbl}>Distance</Text>
+                  </View>
+                )}
+                {price && (
+                  <View style={s.receiptStat}>
+                    <Text style={[s.receiptStatVal, { color: LIME }]}>R{price}</Text>
+                    <Text style={s.receiptStatLbl}>Fare</Text>
+                  </View>
+                )}
+                {riderName && (
+                  <View style={s.receiptStat}>
+                    <Text style={s.receiptStatVal}>{riderName.split(' ')[0]}</Text>
+                    <Text style={s.receiptStatLbl}>Rider</Text>
+                  </View>
+                )}
+              </View>
             </View>
           )}
-          {delivered && (
-            <View style={[s.driverCard, { width: '100%', borderColor: LIME + '30', borderWidth: 1 }]}>
-              <View style={[s.driverAvatar, { backgroundColor: LIME + '20' }]}>
-                <Ionicons name="checkmark-circle" size={24} color={LIME} />
+
+          {/* ── 5. PIN CARD with enhanced share ── */}
+          {!delivered && deliveryPin && (
+            <View style={s.pinCard}>
+              <Text style={s.pinCardLabel}>RECIPIENT PIN</Text>
+              <Text style={s.pinCardHint}>
+                Share this with the person <Text style={{ color: '#fff', fontWeight: '800' }}>receiving</Text> the package.{'\n'}
+                The rider will enter it on delivery.
+              </Text>
+              <View style={s.pinBoxRow}>
+                {deliveryPin.split('').map((digit, i) => (
+                  <View key={i} style={s.pinBox}>
+                    <Text style={s.pinDigit}>{digit}</Text>
+                  </View>
+                ))}
               </View>
-              <View style={s.driverInfo}>
-                <Text style={s.driverName}>Delivery Complete</Text>
-                <Text style={s.driverBike}>Your package was delivered</Text>
+              <TouchableOpacity
+                style={s.sharePinBtn}
+                activeOpacity={0.8}
+                onPress={() => Share.share({
+                  message: [
+                    `Your RunIt delivery PIN is: ${deliveryPin}`,
+                    riderName ? `Rider ${riderName} is on their way.` : 'Your rider is on their way.',
+                    eta ? `Estimated arrival: ~${eta} min.` : '',
+                    `\nShow this PIN to the rider when they arrive to confirm delivery.`,
+                  ].filter(Boolean).join('\n'),
+                  title: 'RunIt Delivery Tracking',
+                })}
+              >
+                <Ionicons name="share-social-outline" size={16} color={BG} />
+                <Text style={s.sharePinTxt}>Share PIN with Recipient</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Route summary — shown when not delivered */}
+          {!delivered && dist && (
+            <View style={[s.trackRoute, { width: '100%' }]}>
+              <View style={s.trackRouteRow}>
+                <View style={[s.trackDot, { backgroundColor: LIME }]} />
+                <Text style={s.trackAddr} numberOfLines={1}>{from}</Text>
+              </View>
+              <View style={s.trackConnector}>
+                <View style={s.trackConnLine} />
+                <Text style={s.trackDistLabel}>{dist} km · ~{eta} min</Text>
+                <View style={s.trackConnLine} />
+              </View>
+              <View style={s.trackRouteRow}>
+                <View style={[s.trackDot, { backgroundColor: '#ef4444' }]} />
+                <Text style={s.trackAddr} numberOfLines={1}>{to}</Text>
               </View>
             </View>
           )}
@@ -1746,7 +1808,90 @@ const s = StyleSheet.create({
   primaryBtnDim: { opacity: 0.35, shadowOpacity: 0 },
   primaryBtnTxt: { fontSize: 16, fontWeight: '900', color: BG, letterSpacing: 0.5 },
 
-  // Tracking
+  // ── Progress bar ──────────────────────────────────────────────────────
+  progressBar: {
+    flexDirection: 'row', alignItems: 'center',
+    width: '100%', marginBottom: 28,
+    backgroundColor: SURFACE, borderRadius: 20, padding: 16,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
+  },
+  progressStep: { alignItems: 'center', gap: 6 },
+  progressDot: {
+    width: 24, height: 24, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  progressDotPulse: { width: 8, height: 8, borderRadius: 4, backgroundColor: BG },
+  progressLine: { flex: 1, height: 2, borderRadius: 1, marginHorizontal: 4, marginBottom: 16 },
+  progressLbl: { fontSize: 10, fontWeight: '700', color: '#444', letterSpacing: 0.5 },
+
+  // ── Rider card ─────────────────────────────────────────────────────────
+  riderCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    width: '100%', backgroundColor: SURFACE, borderRadius: 22,
+    padding: 16, marginBottom: 20,
+    borderWidth: 1, borderColor: LIME + '25',
+  },
+  riderCardAvatar: {
+    width: 52, height: 52, borderRadius: 16,
+    backgroundColor: LIME + '15', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  riderCardAvatarImg: { width: 52, height: 52, borderRadius: 16 },
+  riderCardInitials: { fontSize: 18, fontWeight: '900', color: LIME },
+  riderCardName: { fontSize: 16, fontWeight: '900', color: '#fff', marginBottom: 2 },
+  riderCardSub: { fontSize: 12, color: GREY },
+  riderCardRating: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#f59e0b15', borderRadius: 8,
+    paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1, borderColor: '#f59e0b25',
+  },
+  riderCardRatingTxt: { fontSize: 12, fontWeight: '800', color: '#f59e0b' },
+  etaChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: LIME + '12', borderRadius: 8,
+    paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1, borderColor: LIME + '30',
+  },
+  etaChipTxt: { fontSize: 11, fontWeight: '800', color: LIME },
+
+  // ── Map ETA chip ───────────────────────────────────────────────────────
+  mapEtaChip: {
+    position: 'absolute', top: 12, alignSelf: 'center',
+    backgroundColor: 'rgba(8,8,8,0.88)', borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderWidth: 1, borderColor: 'rgba(200,240,0,0.3)',
+  },
+  mapEtaChipTxt: { fontSize: 13, fontWeight: '800', color: LIME, letterSpacing: 0.3 },
+
+  // ── Receipt card ───────────────────────────────────────────────────────
+  receiptCard: {
+    width: '100%', backgroundColor: SURFACE, borderRadius: 24,
+    padding: 20, marginBottom: 16,
+    borderWidth: 1, borderColor: LIME + '30',
+  },
+  receiptHeader: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 },
+  receiptCheck: {
+    width: 44, height: 44, borderRadius: 14,
+    backgroundColor: LIME, alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  receiptTitle: { fontSize: 20, fontWeight: '900', color: '#fff', marginBottom: 2 },
+  receiptSub: { fontSize: 12, color: GREY },
+  receiptRoute: { marginBottom: 16, gap: 4 },
+  receiptRouteRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  receiptDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  receiptAddr: { fontSize: 13, fontWeight: '600', color: '#bbb', flex: 1 },
+  receiptStats: {
+    flexDirection: 'row', gap: 8,
+    borderTopWidth: 1, borderTopColor: '#1e1e1e', paddingTop: 14,
+  },
+  receiptStat: {
+    flex: 1, alignItems: 'center',
+    borderRightWidth: 1, borderRightColor: '#1e1e1e',
+  },
+  receiptStatVal: { fontSize: 18, fontWeight: '900', color: '#fff', marginBottom: 3 },
+  receiptStatLbl: { fontSize: 10, color: GREY, fontWeight: '700', letterSpacing: 0.5 },
+
+  // Tracking (legacy — kept for compatibility)
   trackStatus: { fontSize: 12, fontWeight: '700', color: GREY, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 16 },
   riderNameCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
