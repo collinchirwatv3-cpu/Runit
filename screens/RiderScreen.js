@@ -836,6 +836,25 @@ export default function RiderScreen({ navigation }) {
           setDiscInfo({ expiry: exp, daysLeft: days });
         }
       }
+
+      // ── Restore active trip if rider closed app mid-delivery ──────────────
+      if (uid) {
+        const { data: activeOrder } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('rider_id', uid)
+          .eq('status', 'on_the_way')
+          .maybeSingle();
+
+        if (activeOrder) {
+          const restoredJob = formatOrder(activeOrder);
+          _setActiveJob(restoredJob);
+          setView('active');
+          setOnline(true);
+          startLocationBroadcast(restoredJob);
+          showToast('Trip restored — you\'re still on a delivery.');
+        }
+      }
     });
   }, []);
 
