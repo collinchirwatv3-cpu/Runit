@@ -544,7 +544,7 @@ export default function MerchantScreen({ navigation }) {
     setDispPosting(true);
     const nextOpen    = getNextOpeningTime(merchantHours);
     const isScheduled = nextOpen !== null;
-    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    const pin = Math.floor(1000 + Math.random() * 9000).toString();
     const { error } = await supabase.from('orders').insert([{
       user_id:       userId,
       from_address:  defaultPickup?.label || storeName || 'Store',

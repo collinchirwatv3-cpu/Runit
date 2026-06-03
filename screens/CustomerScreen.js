@@ -966,7 +966,7 @@ export default function CustomerScreen({ navigation }) {
     if (!from || !to) { Alert.alert('Missing Info', 'Enter pickup and drop-off'); return; }
     setLoading(true);
 
-    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    const pin = Math.floor(1000 + Math.random() * 9000).toString();
 
     // Insert the order (no .select() — avoids RLS issues on the return query)
     const { error: insertError } = await supabase
@@ -1934,13 +1934,13 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: LIME + '25',
   },
   pinCardLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 16 },
-  pinBoxRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  pinBoxRow: { flexDirection: 'row', gap: 14, marginBottom: 12 },
   pinBox: {
-    width: 64, height: 72, borderRadius: 16,
+    width: 72, height: 80, borderRadius: 18,
     backgroundColor: 'rgba(200,240,0,0.1)', borderWidth: 2, borderColor: LIME + '50',
     alignItems: 'center', justifyContent: 'center',
   },
-  pinDigit: { fontSize: 40, fontWeight: '900', color: LIME, letterSpacing: -1 },
+  pinDigit: { fontSize: 44, fontWeight: '900', color: LIME, letterSpacing: -1 },
   pinCardSub: { fontSize: 12, color: GREY, fontWeight: '500', textAlign: 'center' },
   pinCardHint: { fontSize: 13, color: GREY, textAlign: 'center', marginBottom: 16, lineHeight: 20 },
   sharePinBtn: {

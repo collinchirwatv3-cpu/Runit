@@ -1477,7 +1477,7 @@ export default function RiderScreen({ navigation }) {
                 <View style={s.tripPinRow}>
                   <Text style={s.tripPinLbl}>RECIPIENT PIN</Text>
                   <TouchableOpacity style={s.pinBoxRow} onPress={() => pinInputRef.current?.focus()} activeOpacity={1}>
-                    {[0, 1, 2, 3, 4, 5].map(i => (
+                    {[0, 1, 2, 3].map(i => (
                       <View key={i} style={[s.pinBox, pinInput.length === i && s.pinBoxActive, pinError && s.pinBoxError]}>
                         <Text style={[s.pinDigit, pinError && { color: '#ef4444' }]}>{pinInput[i] || ''}</Text>
                       </View>
@@ -1487,17 +1487,17 @@ export default function RiderScreen({ navigation }) {
                     ref={pinInputRef}
                     style={s.pinHiddenInput}
                     value={pinInput}
-                    onChangeText={v => { setPinInput(v.replace(/\D/g, '').slice(0, 6)); setPinError(false); }}
+                    onChangeText={v => { setPinInput(v.replace(/\D/g, '').slice(0, 4)); setPinError(false); }}
                     keyboardType="numeric"
-                    maxLength={6}
+                    maxLength={4}
                   />
                   {pinError && <Text style={s.pinErrorTxt}>Incorrect PIN — try again</Text>}
                 </View>
 
                 <TouchableOpacity
-                  style={[s.deliveredBtn, pinInput.length < 6 && { opacity: 0.4 }]}
+                  style={[s.deliveredBtn, pinInput.length < 4 && { opacity: 0.4 }]}
                   onPress={confirmDelivery}
-                  disabled={pinInput.length < 6}
+                  disabled={pinInput.length < 4}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="checkmark-circle-outline" size={20} color={BG} />
