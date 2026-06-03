@@ -1692,12 +1692,12 @@ const dp = StyleSheet.create({
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll:    { flex: 1 },
-  content:   { paddingHorizontal: 20, paddingTop: 96, paddingBottom: 110 },
+  content:   { paddingHorizontal: 20, paddingTop: 96, paddingBottom: 120 },
 
   // Header
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20 },
-  headerLabel: { fontSize: 10, fontWeight: '700', color: LIME, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 4 },
-  headline: { fontSize: 38, fontWeight: '900', color: '#fff', letterSpacing: -0.5, lineHeight: 42 },
+  headerLabel: { fontSize: 10, fontWeight: '800', color: '#505050', letterSpacing: 2.5, textTransform: 'uppercase', marginBottom: 4 },
+  headline: { fontSize: 40, fontWeight: '900', color: '#fff', letterSpacing: -0.5, lineHeight: 46 },
   storeNameEditRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   storeNameInput: {
     flex: 1, backgroundColor: SURFACE2, borderWidth: 1.5, borderColor: LIME + '50',
@@ -1716,10 +1716,13 @@ const s = StyleSheet.create({
   dispatchFabTxt: { fontSize: 14, fontWeight: '900', color: BG },
 
   // Stats
-  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  statCard: { flex: 1, backgroundColor: SURFACE, borderRadius: 18, padding: 14, alignItems: 'center' },
-  statVal:  { fontSize: 17, fontWeight: '900', color: '#fff', marginBottom: 2 },
-  statLbl:  { fontSize: 10, color: GREY, fontWeight: '600', textAlign: 'center' },
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  statCard: {
+    flex: 1, backgroundColor: SURFACE, borderRadius: 22, padding: 18,
+    alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)',
+  },
+  statVal:  { fontSize: 22, fontWeight: '900', color: '#fff', marginBottom: 3 },
+  statLbl:  { fontSize: 10, color: GREY, fontWeight: '700', textAlign: 'center', letterSpacing: 0.5 },
 
   // Dispatch hero
   dispatchHero: {
@@ -1738,13 +1741,16 @@ const s = StyleSheet.create({
 
   // Tiles
   tileGrid: { flexDirection: 'row', gap: 10, marginBottom: 24 },
-  tile: { flex: 1, backgroundColor: SURFACE, borderRadius: 18, padding: 18 },
-  tileIconWrap: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  tile: {
+    flex: 1, backgroundColor: SURFACE, borderRadius: 22, padding: 20,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)',
+  },
+  tileIconWrap: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   tileLbl: { fontSize: 14, fontWeight: '800', color: '#ccc' },
 
   // Section
   sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionLabel: { fontSize: 10, fontWeight: '700', color: GREY, textTransform: 'uppercase', letterSpacing: 2 },
+  sectionLabel: { fontSize: 10, fontWeight: '800', color: '#505050', textTransform: 'uppercase', letterSpacing: 2.5 },
   seeAll: { fontSize: 12, color: LIME, fontWeight: '700' },
 
   // Empty

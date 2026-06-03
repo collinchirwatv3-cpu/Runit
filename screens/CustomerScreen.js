@@ -1133,14 +1133,16 @@ export default function CustomerScreen({ navigation }) {
         <StatusBar style="light" />
         <TopBar userName={userName} greetingText={greetingText} onLogoPress={() => setScreen('home')} />
         <View style={s.homeContent}>
-          <View>
-            <Text style={s.homeTitle}>Send a</Text>
-            <Text style={s.homeTitleAccent}>Package.</Text>
+          <View style={s.homeHero}>
+            <Text style={s.homeEyebrow}>RUNIT DELIVERY</Text>
+            <Text style={s.homeTitle}>Send anything,{'\n'}<Text style={s.homeTitleAccent}>anywhere.</Text></Text>
+            <Text style={s.homeSubtitle}>Fast · Tracked · Reliable</Text>
           </View>
           <View style={s.btnWrap}>
-            <PulseRing delay={0} size={240} />
-            <PulseRing delay={800} size={240} />
+            <PulseRing delay={0} size={220} />
+            <PulseRing delay={900} size={220} />
             <TouchableOpacity style={s.sendBtn} activeOpacity={0.85} onPress={() => setScreen('booking')}>
+              <Ionicons name="arrow-forward" size={28} color={BG} style={{ marginBottom: 4 }} />
               <Text style={s.sendLabel}>SEND</Text>
             </TouchableOpacity>
           </View>
@@ -1614,16 +1616,19 @@ const s = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: BG, height: '100%' },
   scrollContent: { paddingHorizontal: 24, paddingTop: 90, paddingBottom: 40 },
 
-  homeContent: { flex: 1, paddingHorizontal: 28, justifyContent: 'space-between', paddingTop: 96, paddingBottom: 90 },
-  homeTitle: { fontSize: 64, fontWeight: '900', color: '#fff', letterSpacing: -1, lineHeight: 68 },
-  homeTitleAccent: { fontSize: 64, fontWeight: '900', color: LIME, letterSpacing: -1, lineHeight: 68 },
-  btnWrap: { alignSelf: 'center', width: 240, height: 240, alignItems: 'center', justifyContent: 'center' },
+  homeContent: { flex: 1, paddingHorizontal: 28, justifyContent: 'space-between', paddingTop: 106, paddingBottom: 110 },
+  homeHero: { gap: 8 },
+  homeEyebrow: { fontSize: 11, fontWeight: '700', color: LIME, letterSpacing: 4, textTransform: 'uppercase', opacity: 0.8 },
+  homeTitle: { fontSize: 46, fontWeight: '900', color: '#fff', letterSpacing: -1, lineHeight: 52 },
+  homeTitleAccent: { fontSize: 46, fontWeight: '900', color: LIME, letterSpacing: -1 },
+  homeSubtitle: { fontSize: 14, fontWeight: '500', color: '#555', letterSpacing: 0.5 },
+  btnWrap: { alignSelf: 'center', width: 220, height: 220, alignItems: 'center', justifyContent: 'center' },
   sendBtn: {
-    width: 240, height: 240, borderRadius: 120, backgroundColor: LIME,
+    width: 220, height: 220, borderRadius: 110, backgroundColor: LIME,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: LIME, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 70, elevation: 30,
+    shadowColor: LIME, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.45, shadowRadius: 80, elevation: 30,
   },
-  sendLabel: { fontSize: 40, fontWeight: '900', color: BG, letterSpacing: 5 },
+  sendLabel: { fontSize: 32, fontWeight: '900', color: BG, letterSpacing: 6 },
 
   backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 24 },
   backTxt: { fontSize: 14, color: GREY, fontWeight: '600' },
@@ -1688,7 +1693,7 @@ const s = StyleSheet.create({
 
   mapCard: { height: 220, borderRadius: 20, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: '#1a1a1a' },
 
-  sectionLabel: { fontSize: 11, fontWeight: '700', color: GREY, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 },
+  sectionLabel: { fontSize: 10, fontWeight: '800', color: '#505050', textTransform: 'uppercase', letterSpacing: 2.5, marginBottom: 12 },
 
   sizeRow: { flexDirection: 'row', gap: 10, marginBottom: 24 },
   sizeCard: { flex: 1, backgroundColor: SURFACE, borderRadius: 18, padding: 16, alignItems: 'center', borderWidth: 1.5, borderColor: '#1a1a1a', position: 'relative' },
@@ -1734,12 +1739,12 @@ const s = StyleSheet.create({
   tipSubmitTxt: { fontSize: 14, fontWeight: '900', color: BG },
 
   primaryBtn: {
-    backgroundColor: LIME, borderRadius: 16, height: 58,
+    backgroundColor: LIME, borderRadius: 20, height: 62,
     alignItems: 'center', justifyContent: 'center', marginBottom: 16,
-    shadowColor: LIME, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 24, elevation: 12,
+    shadowColor: LIME, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.35, shadowRadius: 28, elevation: 14,
   },
   primaryBtnDim: { opacity: 0.35, shadowOpacity: 0 },
-  primaryBtnTxt: { fontSize: 17, fontWeight: '900', color: BG },
+  primaryBtnTxt: { fontSize: 16, fontWeight: '900', color: BG, letterSpacing: 0.5 },
 
   // Tracking
   trackStatus: { fontSize: 12, fontWeight: '700', color: GREY, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 16 },
