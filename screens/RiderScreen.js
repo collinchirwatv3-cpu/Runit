@@ -95,10 +95,7 @@ function JobBanner({ job, onAccept, onDismiss }) {
 
           {/* Pay + tip */}
           <View style={jb.payRow}>
-            <View>
-              <Text style={jb.pay}>R {job.pay}</Text>
-              <Text style={jb.payLbl}>your earnings</Text>
-            </View>
+            <Text style={jb.pay}>R {job.pay}</Text>
             {job.tip > 0 && (
               <View style={jb.tipBadge}>
                 <Ionicons name="gift-outline" size={11} color={GREEN} />
