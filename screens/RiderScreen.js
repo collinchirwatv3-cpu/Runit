@@ -766,6 +766,7 @@ export default function RiderScreen({ navigation }) {
   const [completionRate, setCompletionRate] = useState(null);
   const locationIntervalRef = useRef(null);
   const sub = useRef(null);
+  const tipSubRef = useRef(null);        // realtime listener for incoming tips
   const riderLocRef = useRef(null);      // current rider position (for proximity)
   const passiveWatchRef = useRef(null);  // web geolocation watchId
   const riderTripMapRef = useRef(null);  // iframe/WebView ref for active-trip map
@@ -830,6 +831,25 @@ export default function RiderScreen({ navigation }) {
         }
       }
 
+      // ── Realtime tip listener ─────────────────────────────────────────────
+      if (uid) {
+        tipSubRef.current?.unsubscribe();
+        tipSubRef.current = supabase.channel(`rider_tips_${uid}`)
+          .on('postgres_changes', {
+            event: 'UPDATE', schema: 'public', table: 'orders',
+            filter: `rider_id=eq.${uid}`,
+          }, (payload) => {
+            const oldTip = payload.old?.tip || 0;
+            const newTip = payload.new?.tip || 0;
+            if (newTip > oldTip) {
+              const added = newTip - oldTip;
+              showToast(`🎁 +R${added} tip received!`);
+              loadEarnings(uid); // refresh earnings instantly
+            }
+          })
+          .subscribe();
+      }
+
       // ── Restore active trip if rider closed app mid-delivery ──────────────
       if (uid) {
         const { data: activeOrder } = await supabase
@@ -849,6 +869,7 @@ export default function RiderScreen({ navigation }) {
         }
       }
     });
+    return () => { tipSubRef.current?.unsubscribe(); };
   }, []);
 
   const registerPush = async (uid) => {
