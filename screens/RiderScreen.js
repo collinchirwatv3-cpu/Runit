@@ -1059,7 +1059,7 @@ export default function RiderScreen({ navigation }) {
       week[dow] += earn;
       if (d >= today) { todayTotal += earn; todayTrips++; }
     });
-    setEarnings(todayTotal);
+    setEarnings(Math.round(todayTotal * 100) / 100);
     setTrips(todayTrips);
     setEarningsHistory({ today: todayTotal, trips: todayTrips, week });
     setDeliveryHistory(data);
@@ -1573,7 +1573,7 @@ export default function RiderScreen({ navigation }) {
 
           <View style={s.summaryTodayCard}>
             <Text style={s.summaryTodayLabel}>TODAY'S TOTAL</Text>
-            <Text style={s.summaryTodayAmt}>R {earnings}</Text>
+            <Text style={s.summaryTodayAmt}>R {Number.isInteger(earnings) ? earnings : earnings.toFixed(2)}</Text>
             <Text style={s.summaryTodaySub}>{trips} {trips === 1 ? 'delivery' : 'deliveries'} completed</Text>
           </View>
 
@@ -1829,7 +1829,7 @@ export default function RiderScreen({ navigation }) {
 
           <View style={s.earnHero}>
             <Text style={s.earnLabel}>TODAY</Text>
-            <Text style={s.earnAmt}>R {earnings}</Text>
+            <Text style={s.earnAmt}>R {Number.isInteger(earnings) ? earnings : earnings.toFixed(2)}</Text>
             <Text style={s.earnSub}>{trips} {trips === 1 ? 'delivery' : 'deliveries'}</Text>
             {/* Cash out + payment method row */}
             <View style={{ flexDirection: 'row', gap: 10, alignItems: 'stretch' }}>
