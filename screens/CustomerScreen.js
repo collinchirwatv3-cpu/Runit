@@ -388,7 +388,7 @@ function RouteMap({ fromCoords, toCoords, routeCoords, fromLabel, toLabel, rider
 
 // ─── Route visual strip ───────────────────────────────────────────────────
 
-function RouteVisual({ from, to, dist, eta }) {
+function RouteVisual({ from, to, dist, eta, rate = 6.5 }) {
   const fade = useRef(new Animated.Value(0)).current;
   const slide = useRef(new Animated.Value(10)).current;
   useEffect(() => {
@@ -420,7 +420,7 @@ function RouteVisual({ from, to, dist, eta }) {
         <View style={s.routeStatSep} />
         <View style={s.routeStat}><Ionicons name="time-outline" size={13} color={GREY} /><Text style={s.routeStatTxt}>~{eta} min</Text></View>
         <View style={s.routeStatSep} />
-        <View style={s.routeStat}><Ionicons name="speedometer-outline" size={13} color={GREY} /><Text style={s.routeStatTxt}>R{pricing.per_km_rate}/km</Text></View>
+        <View style={s.routeStat}><Ionicons name="speedometer-outline" size={13} color={GREY} /><Text style={s.routeStatTxt}>R{rate}/km</Text></View>
       </View>
     </Animated.View>
   );
@@ -1398,7 +1398,7 @@ map.setView([${homeMapCenter.lat},${homeMapCenter.lon}],14);
           />
 
           {routeReady && (
-            <RouteVisual from={from} to={to} dist={dist} eta={eta} />
+            <RouteVisual from={from} to={to} dist={dist} eta={eta} rate={pricing.per_km_rate} />
           )}
 
           {/* Package size */}
