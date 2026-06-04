@@ -22,9 +22,10 @@ const AMBER   = '#f59e0b';
 const BLUE    = '#3b82f6';
 const RED     = '#ef4444';
 
-// ─── Pricing ──────────────────────────────────────────────────────────────
-const BASE = 15;
-const RATE = 6.5;
+// ─── Pricing fallbacks (overridden by DB values on mount) ─────────────────
+const DEFAULT_BASE = 15;
+const DEFAULT_RATE = 6.5;
+const DEFAULT_LARGE_MULT = 1.4;
 
 // ─── Package definitions ───────────────────────────────────────────────────
 const PACKAGE_SIZES = [
@@ -270,6 +271,9 @@ export default function MerchantScreen({ navigation }) {
   const [toast,            setToast]           = useState(null);     // { msg, type }
   const toastTimerRef = useRef(null);
 
+  // ── Pricing ───────────────────────────────────────────────────────────
+  const [pricing, setPricing] = useState({ base_fee: DEFAULT_BASE, per_km_rate: DEFAULT_RATE, large_multiplier: DEFAULT_LARGE_MULT });
+
   // ── Card on file ─────────────────────────────────────────────────────
   const [cardOnFile,        setCardOnFile]        = useState(null);   // { payfast_token } or null
   const [cardLoading,       setCardLoading]       = useState(false);
@@ -293,6 +297,9 @@ export default function MerchantScreen({ navigation }) {
         loadHours(uid);
         loadCard(uid);
       }
+      // Fetch live pricing (runs regardless of uid)
+      supabase.from('pricing').select('base_fee, per_km_rate, large_multiplier').limit(1).maybeSingle()
+        .then(({ data }) => { if (data) setPricing(data); });
     });
 
     // Detect return from PayFast card registration redirect
@@ -515,7 +522,7 @@ export default function MerchantScreen({ navigation }) {
     if (from) {
       setDispCalc(true);
       const route = await getRoute(from, { lat: sug.lat, lon: sug.lon });
-      const p = Math.round((BASE + route.distKm * RATE) * (dispSize === 'large' ? 1.4 : 1));
+      const p = Math.round((pricing.base_fee + route.distKm * pricing.per_km_rate) * (dispSize === 'large' ? pricing.large_multiplier : 1));
       setDispPrice(p);
       setDispEta(route.durationMin);
       setDispDist(Math.round(route.distKm * 10) / 10);
@@ -1091,7 +1098,7 @@ export default function MerchantScreen({ navigation }) {
                     onPress={() => {
                       setDispSize(sz.id);
                       if (dispPrice && dispDist) {
-                        const p = Math.round((BASE + dispDist * RATE) * (sz.id === 'large' ? 1.4 : 1));
+                        const p = Math.round((pricing.base_fee + dispDist * pricing.per_km_rate) * (sz.id === 'large' ? pricing.large_multiplier : 1));
                         setDispPrice(p);
                       }
                     }}

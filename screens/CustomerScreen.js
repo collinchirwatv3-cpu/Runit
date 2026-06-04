@@ -18,8 +18,10 @@ const SURFACE2 = '#181818';
 const BORDER = '#1e1e1e';
 const MUTED = '#444';
 const GREY = '#777';
-const BASE = 15;
-const RATE = 6.5;
+// Fallback pricing — overridden by DB values on mount
+const DEFAULT_BASE = 15;
+const DEFAULT_RATE = 6.5;
+const DEFAULT_LARGE_MULT = 1.4;
 
 // ─── Geocoding ────────────────────────────────────────────────────────────
 
@@ -408,7 +410,7 @@ function RouteVisual({ from, to, dist, eta }) {
         <View style={s.routeStatSep} />
         <View style={s.routeStat}><Ionicons name="time-outline" size={13} color={GREY} /><Text style={s.routeStatTxt}>~{eta} min</Text></View>
         <View style={s.routeStatSep} />
-        <View style={s.routeStat}><Ionicons name="speedometer-outline" size={13} color={GREY} /><Text style={s.routeStatTxt}>R{RATE}/km</Text></View>
+        <View style={s.routeStat}><Ionicons name="speedometer-outline" size={13} color={GREY} /><Text style={s.routeStatTxt}>R{pricing.per_km_rate}/km</Text></View>
       </View>
     </Animated.View>
   );
@@ -676,7 +678,8 @@ const am = StyleSheet.create({
 
 export default function CustomerScreen({ navigation }) {
   const [screen, setScreen] = useState('home');
-  const [homeMapCenter, setHomeMapCenter] = useState({ lat: -33.9249, lon: 18.4241 }); // Cape Town default
+  const [homeMapCenter, setHomeMapCenter] = useState({ lat: -33.9249, lon: 18.4241 });
+  const [pricing, setPricing] = useState({ base_fee: DEFAULT_BASE, per_km_rate: DEFAULT_RATE, large_multiplier: DEFAULT_LARGE_MULT });
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [packageSize, setPackageSize] = useState('small');
@@ -786,6 +789,10 @@ export default function CustomerScreen({ navigation }) {
         }
       }
     });
+
+    // Fetch live pricing from DB (falls back to defaults if unavailable)
+    supabase.from('pricing').select('base_fee, per_km_rate, large_multiplier').limit(1).maybeSingle()
+      .then(({ data }) => { if (data) setPricing(data); });
 
     // Silently grab location to centre the home screen background map
     if (Platform.OS === 'web' && navigator?.geolocation) {
@@ -910,7 +917,7 @@ export default function CustomerScreen({ navigation }) {
     setCalculating(true);
     setDist(null); setPrice(null); setEta(null); setRouteCoords(null);
     const route = await getRoute(a, b);
-    const p = Math.round((BASE + route.distKm * RATE) * (size === 'large' ? 1.4 : 1));
+    const p = Math.round((pricing.base_fee + route.distKm * pricing.per_km_rate) * (size === 'large' ? pricing.large_multiplier : 1));
     setFromCoords(a); setToCoords(b); setRouteCoords(route.coords);
     setDist(route.distKm); setEta(route.durationMin); setPrice(p);
     setCalculating(false);
@@ -1369,7 +1376,7 @@ map.setView([${homeMapCenter.lat},${homeMapCenter.lon}],14);
               <View>
                 <Text style={s.priceNum}>R {price}</Text>
                 <Text style={s.priceMeta}>
-                  Delivery fare{packageSize === 'large' ? ' · large ×1.4' : ''}
+                  Delivery fare{packageSize === 'large' ? ` · large ×${pricing.large_multiplier}` : ''}
                 </Text>
               </View>
               <View style={s.bestRate}><Text style={s.bestRateTxt}>Best Rate</Text></View>

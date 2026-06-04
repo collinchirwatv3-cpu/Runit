@@ -24,6 +24,7 @@ const SECTIONS = [
   { key: 'riders',         label: 'Riders',    icon: 'bicycle-outline' },
   { key: 'verifications',  label: 'Verify',    icon: 'shield-checkmark-outline' },
   { key: 'payouts',        label: 'Payouts',   icon: 'cash-outline' },
+  { key: 'pricing',        label: 'Pricing',   icon: 'pricetag-outline' },
   { key: 'feedback',       label: 'Feedback',  icon: 'chatbox-ellipses-outline' },
   { key: 'faqs',           label: 'FAQs',      icon: 'help-circle-outline' },
 ];
@@ -107,6 +108,11 @@ export default function AdminScreen({ navigation }) {
   const [replyText, setReplyText]           = useState({});    // { [id]: string }
   const [replying, setReplying]             = useState(null);
 
+  // Pricing
+  const [pricing, setPricing]               = useState({ base_fee: '15.00', per_km_rate: '6.50', large_multiplier: '1.40' });
+  const [pricingSaving, setPricingSaving]   = useState(false);
+  const [pricingSaved, setPricingSaved]     = useState(false);
+
   // Verifications UI state
   const [verifTab, setVerifTab]             = useState('submitted');
   const [showRejectInput, setShowRejectInput] = useState(null);
@@ -141,16 +147,22 @@ export default function AdminScreen({ navigation }) {
   // ── Fetch ────────────────────────────────────────────────────────────────
   const fetchAll = async (quiet = false) => {
     if (!quiet) setLoading(true);
-    const [{ data: vData }, { data: pData }, { data: oData }, { data: tData }] = await Promise.all([
+    const [{ data: vData }, { data: pData }, { data: oData }, { data: tData }, { data: prData }] = await Promise.all([
       supabase.from('rider_verifications').select('*').order('submitted_at', { ascending: false }),
       supabase.from('payout_requests').select('*').order('created_at', { ascending: false }),
       supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(300),
       supabase.from('support_tickets').select('*').order('created_at', { ascending: false }),
+      supabase.from('pricing').select('*').limit(1).maybeSingle(),
     ]);
     setVerifications(vData || []);
     setPayouts(pData || []);
     setOrders(oData || []);
     setTickets(tData || []);
+    if (prData) setPricing({
+      base_fee:        String(prData.base_fee),
+      per_km_rate:     String(prData.per_km_rate),
+      large_multiplier:String(prData.large_multiplier),
+    });
     setLoading(false);
     setRefreshing(false);
   };
@@ -388,6 +400,23 @@ export default function AdminScreen({ navigation }) {
       }).catch(() => {});
     }
   };
+  const savePricing = async () => {
+    const base = parseFloat(pricing.base_fee);
+    const rate = parseFloat(pricing.per_km_rate);
+    const mult = parseFloat(pricing.large_multiplier);
+    if (isNaN(base) || isNaN(rate) || isNaN(mult) || base < 0 || rate < 0 || mult < 1) return;
+    setPricingSaving(true);
+    const { error } = await supabase.from('pricing').upsert({
+      id: 1, base_fee: base, per_km_rate: rate, large_multiplier: mult, updated_at: new Date().toISOString(),
+    }, { onConflict: 'id' });
+    setPricingSaving(false);
+    if (!error) {
+      setPricingSaved(true);
+      setTimeout(() => setPricingSaved(false), 3000);
+      logActivity('pricing_update', 1, `Updated pricing: base R${base}, R${rate}/km, large ×${mult}`);
+    }
+  };
+
   const cancelOrder = async (id) => {
     const o = orders.find(r => r.id === id);
     await supabase.from('orders').update({
@@ -492,7 +521,7 @@ export default function AdminScreen({ navigation }) {
       {/* ── Nav tabs ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.navBar} contentContainerStyle={s.navBarContent}>
         {[
-          ...SECTIONS.filter(s => isSuperAdmin || s.key !== 'payouts'),
+          ...SECTIONS.filter(s => isSuperAdmin || (s.key !== 'payouts' && s.key !== 'pricing')),
           ...(isSuperAdmin ? [
             { key: 'team', label: 'Team',  icon: 'people-outline'     },
             { key: 'logs', label: 'Logs',  icon: 'receipt-outline'    },
@@ -913,6 +942,82 @@ export default function AdminScreen({ navigation }) {
             ))
           }
         </ScrollView>
+      )}
+
+      {/* ════════ PRICING (super admin only) ════════ */}
+      {section === 'pricing' && isSuperAdmin && (
+        <ScrollView contentContainerStyle={s.page}>
+          <Text style={s.pageTitle}>Delivery Pricing</Text>
+          <Text style={[s.subtitle, { marginBottom: 24 }]}>
+            Changes apply immediately to all new bookings. Existing orders keep their original price.
+          </Text>
+
+          {[
+            { label: 'Base Fare (R)', key: 'base_fee', hint: 'Charged on every order regardless of distance', icon: 'flag-outline' },
+            { label: 'Rate per km (R)', key: 'per_km_rate', hint: 'Multiplied by the route distance', icon: 'speedometer-outline' },
+            { label: 'Large package multiplier (×)', key: 'large_multiplier', hint: 'Applied on top of the total for large packages (e.g. 1.4 = 40% surcharge)', icon: 'archive-outline' },
+          ].map(({ label, key, hint, icon }) => (
+            <View key={key} style={[s.card, { marginBottom: 14, padding: 18 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                <View style={[s.statIcon, { backgroundColor: LIME + '18' }]}>
+                  <Ionicons name={icon} size={16} color={LIME} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardTitle}>{label}</Text>
+                  <Text style={s.cardSub}>{hint}</Text>
+                </View>
+              </View>
+              <TextInput
+                style={[s.searchInput, { fontSize: 28, fontWeight: '900', color: LIME, paddingVertical: 10 }]}
+                value={String(pricing[key])}
+                onChangeText={v => setPricing(p => ({ ...p, [key]: v }))}
+                keyboardType="decimal-pad"
+                selectTextOnFocus
+              />
+            </View>
+          ))}
+
+          {/* Live preview */}
+          <View style={[s.card, { marginBottom: 24, padding: 18, borderColor: LIME + '30', borderWidth: 1 }]}>
+            <Text style={[s.cardTitle, { marginBottom: 12 }]}>Live Preview</Text>
+            {[3, 7, 15].map(km => {
+              const base = parseFloat(pricing.base_fee) || 0;
+              const rate = parseFloat(pricing.per_km_rate) || 0;
+              const mult = parseFloat(pricing.large_multiplier) || 1;
+              const small = Math.round(base + km * rate);
+              const large = Math.round((base + km * rate) * mult);
+              return (
+                <View key={km} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}>
+                  <Text style={s.cardSub}>{km} km</Text>
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+                    Small: <Text style={{ color: LIME }}>R{small}</Text>{'   '}
+                    Large: <Text style={{ color: ORANGE }}>R{large}</Text>
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={[s.approveBtn, { height: 56, borderRadius: 16 }, pricingSaving && { opacity: 0.6 }]}
+            onPress={savePricing}
+            disabled={pricingSaving}
+            activeOpacity={0.85}
+          >
+            {pricingSaving
+              ? <ActivityIndicator color="#000" size="small" />
+              : <Text style={s.approveBtnTxt}>{pricingSaved ? '✓ Saved!' : 'Save Pricing'}</Text>
+            }
+          </TouchableOpacity>
+        </ScrollView>
+      )}
+
+      {/* Non-super-admin trying to access pricing */}
+      {section === 'pricing' && !isSuperAdmin && (
+        <View style={s.center}>
+          <Ionicons name="lock-closed-outline" size={40} color={MUTED} />
+          <Text style={s.emptyTxt}>Super admin only</Text>
+        </View>
       )}
 
       {/* ════════ FEEDBACK & QUERIES ════════ */}
