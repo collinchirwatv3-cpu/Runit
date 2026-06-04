@@ -95,7 +95,10 @@ function JobBanner({ job, onAccept, onDismiss }) {
 
           {/* Pay + tip */}
           <View style={jb.payRow}>
-            <Text style={jb.pay}>R {job.pay}</Text>
+            <View>
+              <Text style={jb.pay}>R {job.pay}</Text>
+              <Text style={jb.payLbl}>your earnings</Text>
+            </View>
             {job.tip > 0 && (
               <View style={jb.tipBadge}>
                 <Ionicons name="gift-outline" size={11} color={GREEN} />
@@ -492,15 +495,19 @@ function RiderTripMap({ initRider, fromCoords, toCoords, iframeRef: extIframeRef
   return <WebView ref={ref} source={{ html }} style={{ flex: 1 }} javaScriptEnabled />;
 }
 
+const RIDER_CUT = 0.8; // rider keeps 80%, RunIt takes 20%
+
 function formatOrder(o) {
   const km = o.dist_km
     ? parseFloat(o.dist_km)
     : o.price
     ? parseFloat(((o.price - 15) / 6.5).toFixed(1))
     : 5.0;
+  const grossPrice = o.price || Math.round(km * 6.5 + 15);
   return {
     id: o.id,
-    pay: o.price || Math.round(km * 6.5 + 15),
+    pay: Math.round(grossPrice * RIDER_CUT),  // rider's actual take-home
+    grossPay: grossPrice,                      // full fare (for reference)
     km: Math.round(km * 10) / 10,
     time: Math.round((km / 22) * 60),
     from: o.from_address || 'Pickup',
@@ -2444,7 +2451,8 @@ const jb = StyleSheet.create({
   },
 
   payRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  pay: { fontSize: 42, fontWeight: '900', color: GREEN, letterSpacing: -1 }, // ← massive, glanceable
+  pay: { fontSize: 42, fontWeight: '900', color: GREEN, letterSpacing: -1 },
+  payLbl: { fontSize: 10, fontWeight: '700', color: GREEN + '80', letterSpacing: 0.5, textTransform: 'uppercase', marginTop: -4 },
   tipBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: GREEN + '18', borderRadius: 10,
