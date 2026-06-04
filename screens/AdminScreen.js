@@ -27,6 +27,7 @@ const SECTIONS = [
   { key: 'pricing',        label: 'Pricing',   icon: 'pricetag-outline' },
   { key: 'feedback',       label: 'Feedback',  icon: 'chatbox-ellipses-outline' },
   { key: 'faqs',           label: 'FAQs',      icon: 'help-circle-outline' },
+  { key: 'danger',         label: 'Settings',  icon: 'settings-outline' },
 ];
 
 // ─── Status helpers ────────────────────────────────────────────────────────
@@ -81,6 +82,40 @@ function StatCard({ icon, label, value, color = LIME, sub }) {
   );
 }
 
+// ─── Danger confirm input ─────────────────────────────────────────────────
+function DangerConfirmInput({ onConfirmed, onCancel, loading }) {
+  const [val, setVal] = React.useState('');
+  const ready = val.trim().toUpperCase() === 'DELETE';
+  return (
+    <View style={{ gap: 8 }}>
+      <TextInput
+        style={{ backgroundColor: '#0a0a0a', borderWidth: 1.5, borderColor: ready ? RED : '#2a2a2a', borderRadius: 8, paddingHorizontal: 12, height: 42, color: '#fff', fontSize: 14, fontWeight: '700', outlineStyle: 'none' }}
+        placeholder="Type DELETE"
+        placeholderTextColor="#333"
+        value={val}
+        onChangeText={setVal}
+        autoCapitalize="characters"
+        autoCorrect={false}
+      />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <TouchableOpacity style={[{ flex: 1, height: 40, borderRadius: 8, backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center' }]} onPress={onCancel}>
+          <Text style={{ color: '#666', fontWeight: '600', fontSize: 13 }}>Cancel</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[{ flex: 2, height: 40, borderRadius: 8, backgroundColor: ready ? RED : '#1a1a1a', alignItems: 'center', justifyContent: 'center' }, (!ready || loading) && { opacity: 0.5 }]}
+          onPress={onConfirmed}
+          disabled={!ready || loading}
+        >
+          {loading
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={{ color: ready ? '#fff' : '#444', fontWeight: '800', fontSize: 13 }}>Confirm Delete</Text>
+          }
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 // ─── Main screen ───────────────────────────────────────────────────────────
 export default function AdminScreen({ navigation }) {
   const [section, setSection]               = useState('overview');
@@ -112,6 +147,10 @@ export default function AdminScreen({ navigation }) {
   const [pricing, setPricing]               = useState({ base_fee: '15.00', per_km_rate: '6.50', large_multiplier: '1.40' });
   const [pricingSaving, setPricingSaving]   = useState(false);
   const [pricingSaved, setPricingSaved]     = useState(false);
+  // Danger zone
+  const [dangerConfirm, setDangerConfirm]   = useState(null); // null | 'orders' | 'all'
+  const [dangerLoading, setDangerLoading]   = useState(false);
+  const [dangerDone, setDangerDone]         = useState(null);
   // Surge zones
   const [surgeZones, setSurgeZones]         = useState([]);
   const [surgeTab, setSurgeTab]             = useState('pricing'); // 'pricing' | 'zones'
@@ -439,6 +478,24 @@ export default function AdminScreen({ navigation }) {
     setSurgeZones(prev => prev.filter(z => z.id !== id));
   };
 
+  const runDangerAction = async (type) => {
+    setDangerLoading(true);
+    setDangerDone(null);
+    if (type === 'orders') {
+      await supabase.from('orders').delete().neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
+    } else if (type === 'all') {
+      await supabase.from('orders').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('payout_requests').delete().neq('id', 0);
+      await supabase.from('support_tickets').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    }
+    setDangerLoading(false);
+    setDangerConfirm(null);
+    setDangerDone(type);
+    setTimeout(() => setDangerDone(null), 4000);
+    fetchAll(true);
+    logActivity('danger_clear', null, `Cleared ${type === 'all' ? 'all test data' : 'all orders'}`, {});
+  };
+
   const savePricing = async () => {
     const base = parseFloat(pricing.base_fee);
     const rate = parseFloat(pricing.per_km_rate);
@@ -560,7 +617,7 @@ export default function AdminScreen({ navigation }) {
       {/* ── Nav tabs ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.navBar} contentContainerStyle={s.navBarContent}>
         {[
-          ...SECTIONS.filter(s => isSuperAdmin || (s.key !== 'payouts' && s.key !== 'pricing')),
+          ...SECTIONS.filter(s => isSuperAdmin || (s.key !== 'payouts' && s.key !== 'pricing' && s.key !== 'danger')),
           ...(isSuperAdmin ? [
             { key: 'team', label: 'Team',  icon: 'people-outline'     },
             { key: 'logs', label: 'Logs',  icon: 'receipt-outline'    },
@@ -1701,6 +1758,77 @@ export default function AdminScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
+        </ScrollView>
+      )}
+
+      {/* ════════ SETTINGS / DANGER ZONE ════════ */}
+      {section === 'danger' && isSuperAdmin && (
+        <ScrollView contentContainerStyle={s.page}>
+          <View style={s.pageHeader}>
+            <Text style={s.pageTitle}>Settings</Text>
+            <Text style={s.pageDesc}>Super admin tools. These actions are permanent.</Text>
+          </View>
+
+          {/* Success message */}
+          {dangerDone && (
+            <View style={[s.formCard, { padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16, borderColor: GREEN + '40', borderWidth: 1 }]}>
+              <Ionicons name="checkmark-circle" size={22} color={GREEN} />
+              <Text style={{ color: GREEN, fontWeight: '700', fontSize: 14 }}>
+                {dangerDone === 'orders' ? 'All orders cleared successfully.' : 'All test data cleared.'}
+              </Text>
+            </View>
+          )}
+
+          {/* Danger actions */}
+          <Text style={[s.sectionHeading, { marginBottom: 10 }]}>Danger Zone</Text>
+
+          {[
+            {
+              key: 'orders',
+              title: 'Clear all orders',
+              desc: 'Permanently deletes every order in the database. Riders and customers are unaffected.',
+              icon: 'trash-outline',
+              confirmMsg: 'This will delete ALL orders permanently. Type DELETE to confirm.',
+            },
+            {
+              key: 'all',
+              title: 'Clear all test data',
+              desc: 'Deletes all orders, payout requests, and support tickets. Use before going live.',
+              icon: 'nuclear-outline',
+              confirmMsg: 'This will wipe orders, payouts, and tickets permanently. Type DELETE to confirm.',
+            },
+          ].map(action => (
+            <View key={action.key} style={[s.formCard, { marginBottom: 12 }]}>
+              <View style={{ padding: 16 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <View style={[s.statIcon, { backgroundColor: RED + '15' }]}>
+                    <Ionicons name={action.icon} size={16} color={RED} />
+                  </View>
+                  <Text style={[s.cardTitle, { color: '#fff' }]}>{action.title}</Text>
+                </View>
+                <Text style={s.cardSub}>{action.desc}</Text>
+
+                {dangerConfirm === action.key ? (
+                  <View style={{ marginTop: 14, gap: 10 }}>
+                    <Text style={{ fontSize: 12, color: RED, fontWeight: '600' }}>{action.confirmMsg}</Text>
+                    <DangerConfirmInput
+                      onConfirmed={() => runDangerAction(action.key)}
+                      onCancel={() => setDangerConfirm(null)}
+                      loading={dangerLoading}
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[s.rejectBtn, { marginTop: 12, borderColor: RED + '40', height: 40, borderRadius: 10 }]}
+                    onPress={() => setDangerConfirm(action.key)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[s.rejectBtnTxt, { fontSize: 13 }]}>{action.title}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          ))}
         </ScrollView>
       )}
 
