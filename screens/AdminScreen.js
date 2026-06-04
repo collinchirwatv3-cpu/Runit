@@ -947,66 +947,72 @@ export default function AdminScreen({ navigation }) {
       {/* ════════ PRICING (super admin only) ════════ */}
       {section === 'pricing' && isSuperAdmin && (
         <ScrollView contentContainerStyle={s.page}>
-          <Text style={s.pageTitle}>Delivery Pricing</Text>
-          <Text style={[s.subtitle, { marginBottom: 24 }]}>
-            Changes apply immediately to all new bookings. Existing orders keep their original price.
-          </Text>
+          <View style={s.pageHeader}>
+            <Text style={s.pageTitle}>Delivery Pricing</Text>
+            <Text style={s.pageDesc}>Changes apply immediately to all new bookings. Existing orders are unaffected.</Text>
+          </View>
 
-          {[
-            { label: 'Base Fare (R)', key: 'base_fee', hint: 'Charged on every order regardless of distance', icon: 'flag-outline' },
-            { label: 'Rate per km (R)', key: 'per_km_rate', hint: 'Multiplied by the route distance', icon: 'speedometer-outline' },
-            { label: 'Large package multiplier (×)', key: 'large_multiplier', hint: 'Applied on top of the total for large packages (e.g. 1.4 = 40% surcharge)', icon: 'archive-outline' },
-          ].map(({ label, key, hint, icon }) => (
-            <View key={key} style={[s.card, { marginBottom: 14, padding: 18 }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <View style={[s.statIcon, { backgroundColor: LIME + '18' }]}>
-                  <Ionicons name={icon} size={16} color={LIME} />
+          {/* Form fields */}
+          <View style={s.formCard}>
+            {[
+              { label: 'Base Fare', prefix: 'R', key: 'base_fee', hint: 'Flat fee charged on every order', icon: 'flag-outline' },
+              { label: 'Rate per km', prefix: 'R', key: 'per_km_rate', hint: 'Per kilometre of route distance', icon: 'speedometer-outline' },
+              { label: 'Large package surcharge', prefix: '×', key: 'large_multiplier', hint: '1.4 = 40% extra on large orders', icon: 'archive-outline' },
+            ].map(({ label, prefix, key, hint, icon }, i, arr) => (
+              <View key={key} style={[s.formRow, i < arr.length - 1 && { borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }]}>
+                <View style={s.formLabelRow}>
+                  <Ionicons name={icon} size={14} color={GREY} />
+                  <Text style={s.formLabel}>{label}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.cardTitle}>{label}</Text>
-                  <Text style={s.cardSub}>{hint}</Text>
+                <Text style={s.formHint}>{hint}</Text>
+                <View style={s.formInputWrap}>
+                  <Text style={s.formPrefix}>{prefix}</Text>
+                  <TextInput
+                    style={s.formInput}
+                    value={String(pricing[key])}
+                    onChangeText={v => setPricing(p => ({ ...p, [key]: v }))}
+                    keyboardType="decimal-pad"
+                    selectTextOnFocus
+                    placeholderTextColor={GREY}
+                  />
                 </View>
               </View>
-              <TextInput
-                style={[s.searchInput, { fontSize: 28, fontWeight: '900', color: LIME, paddingVertical: 10 }]}
-                value={String(pricing[key])}
-                onChangeText={v => setPricing(p => ({ ...p, [key]: v }))}
-                keyboardType="decimal-pad"
-                selectTextOnFocus
-              />
-            </View>
-          ))}
+            ))}
+          </View>
 
-          {/* Live preview */}
-          <View style={[s.card, { marginBottom: 24, padding: 18, borderColor: LIME + '30', borderWidth: 1 }]}>
-            <Text style={[s.cardTitle, { marginBottom: 12 }]}>Live Preview</Text>
-            {[3, 7, 15].map(km => {
+          {/* Live fare table */}
+          <View style={s.formCard}>
+            <Text style={s.formSectionTitle}>FARE PREVIEW</Text>
+            <View style={{ flexDirection: 'row', paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#1a1a1a', marginBottom: 4 }}>
+              <Text style={[s.tableHeader, { flex: 1 }]}>Distance</Text>
+              <Text style={[s.tableHeader, { width: 80, textAlign: 'right' }]}>Small</Text>
+              <Text style={[s.tableHeader, { width: 80, textAlign: 'right' }]}>Large</Text>
+            </View>
+            {[3, 5, 7, 10, 15, 20].map(km => {
               const base = parseFloat(pricing.base_fee) || 0;
               const rate = parseFloat(pricing.per_km_rate) || 0;
               const mult = parseFloat(pricing.large_multiplier) || 1;
               const small = Math.round(base + km * rate);
               const large = Math.round((base + km * rate) * mult);
               return (
-                <View key={km} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}>
-                  <Text style={s.cardSub}>{km} km</Text>
-                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
-                    Small: <Text style={{ color: LIME }}>R{small}</Text>{'   '}
-                    Large: <Text style={{ color: ORANGE }}>R{large}</Text>
-                  </Text>
+                <View key={km} style={{ flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#111' }}>
+                  <Text style={[s.tableCell, { flex: 1 }]}>{km} km</Text>
+                  <Text style={[s.tableCell, { width: 80, textAlign: 'right', color: '#fff' }]}>R{small}</Text>
+                  <Text style={[s.tableCell, { width: 80, textAlign: 'right', color: ORANGE }]}>R{large}</Text>
                 </View>
               );
             })}
           </View>
 
           <TouchableOpacity
-            style={[s.approveBtn, { height: 56, borderRadius: 16 }, pricingSaving && { opacity: 0.6 }]}
+            style={[s.saveBtn, pricingSaving && { opacity: 0.6 }]}
             onPress={savePricing}
             disabled={pricingSaving}
             activeOpacity={0.85}
           >
             {pricingSaving
               ? <ActivityIndicator color="#000" size="small" />
-              : <Text style={s.approveBtnTxt}>{pricingSaved ? '✓ Saved!' : 'Save Pricing'}</Text>
+              : <Text style={s.saveBtnTxt}>{pricingSaved ? '✓ Saved' : 'Save Changes'}</Text>
             }
           </TouchableOpacity>
         </ScrollView>
@@ -1583,48 +1589,73 @@ export default function AdminScreen({ navigation }) {
 
 // ─── Styles ────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container:  { flex: 1, backgroundColor: BG },
-  header:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: MUTED },
-  title:      { fontSize: 22, fontWeight: '900', color: '#fff' },
-  subtitle:   { fontSize: 12, color: GREY, marginTop: 2 },
-  logoutBtn:  { padding: 8 },
+  container:  { flex: 1, backgroundColor: '#0a0a0a' },
+  header:     {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 24, paddingTop: 52, paddingBottom: 16,
+    backgroundColor: '#0d0d0d',
+    borderBottomWidth: 1, borderBottomColor: '#1a1a1a',
+  },
+  title:      { fontSize: 18, fontWeight: '800', color: '#fff', letterSpacing: -0.3 },
+  subtitle:   { fontSize: 12, color: '#555', marginTop: 2 },
+  logoutBtn:  { width: 36, height: 36, borderRadius: 8, backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center' },
 
   // Nav
   navBar:        { borderBottomWidth: 1, borderBottomColor: '#1a1a1a', backgroundColor: '#0d0d0d', flexGrow: 0 },
   navBarContent: { paddingHorizontal: 8, paddingVertical: 0, flexDirection: 'row', gap: 0 },
-  navBtn:        { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 14, position: 'relative', borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  navBtn:        { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 12, position: 'relative', borderBottomWidth: 2, borderBottomColor: 'transparent' },
   navBtnActive:  { borderBottomColor: LIME },
-  navBtnTxt:     { fontSize: 13, fontWeight: '700', color: GREY },
-  navBtnTxtActive:{ color: '#fff' },
+  navBtnTxt:     { fontSize: 12, fontWeight: '600', color: '#555' },
+  navBtnTxtActive:{ color: '#ccc' },
   dot:           { position: 'absolute', top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   dotTxt:        { fontSize: 9, fontWeight: '900', color: '#fff' },
 
   // Tabs
-  tabBar:     { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: MUTED },
-  tab:        { flex: 1, paddingVertical: 12, alignItems: 'center' },
+  tabBar:     { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#1a1a1a', backgroundColor: '#0d0d0d' },
+  tab:        { flex: 1, paddingVertical: 11, alignItems: 'center' },
   tabActive:  { borderBottomWidth: 2, borderBottomColor: LIME },
-  tabTxt:     { color: GREY, fontSize: 12, fontWeight: '600' },
-  tabTxtActive:{ color: LIME },
+  tabTxt:     { color: '#555', fontSize: 12, fontWeight: '600' },
+  tabTxtActive:{ color: '#ccc' },
 
-  page:       { padding: 16, paddingBottom: 40 },
+  page:       { padding: 20, paddingBottom: 40 },
   center:     { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyTxt:   { color: GREY, fontSize: 15 },
 
+  // Page header
+  pageHeader: { marginBottom: 20 },
+  pageTitle:  { fontSize: 20, fontWeight: '800', color: '#fff', marginBottom: 4 },
+  pageDesc:   { fontSize: 13, color: '#555', lineHeight: 18 },
+
+  // Professional form (for pricing etc)
+  formCard:   { backgroundColor: '#111', borderRadius: 14, borderWidth: 1, borderColor: '#1e1e1e', marginBottom: 16, overflow: 'hidden' },
+  formRow:    { padding: 16 },
+  formLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 3 },
+  formLabel:  { fontSize: 13, fontWeight: '700', color: '#ccc' },
+  formHint:   { fontSize: 11, color: '#444', marginBottom: 10 },
+  formInputWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a0a0a', borderRadius: 8, borderWidth: 1, borderColor: '#2a2a2a', paddingHorizontal: 12, height: 44 },
+  formPrefix: { fontSize: 14, fontWeight: '700', color: '#555', marginRight: 6 },
+  formInput:  { flex: 1, fontSize: 16, fontWeight: '700', color: '#fff', outlineStyle: 'none' },
+  formSectionTitle: { fontSize: 10, fontWeight: '800', color: '#444', letterSpacing: 1.5, textTransform: 'uppercase', padding: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
+  tableHeader:{ fontSize: 10, fontWeight: '700', color: '#444', textTransform: 'uppercase', letterSpacing: 1, paddingHorizontal: 16 },
+  tableCell:  { fontSize: 13, color: '#888', paddingHorizontal: 16 },
+  saveBtn:    { height: 48, borderRadius: 10, backgroundColor: LIME, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  saveBtnTxt: { fontSize: 14, fontWeight: '800', color: '#000', letterSpacing: 0.3 },
+
   // Overview
-  sectionHeading: { fontSize: 11, fontWeight: '800', color: GREY, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 },
+  sectionHeading: { fontSize: 10, fontWeight: '800', color: '#444', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 },
   statGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  statCard:   { backgroundColor: SURFACE, borderRadius: 14, padding: 14, width: '47%', gap: 6 },
-  statIcon:   { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-  statVal:    { fontSize: 26, fontWeight: '900' },
-  statLabel:  { fontSize: 12, color: GREY, fontWeight: '600' },
-  statSub:    { fontSize: 11, color: MUTED },
+  statCard:   { backgroundColor: '#111', borderRadius: 12, padding: 14, width: '47%', gap: 6, borderWidth: 1, borderColor: '#1a1a1a' },
+  statIcon:   { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  statVal:    { fontSize: 24, fontWeight: '900' },
+  statLabel:  { fontSize: 11, color: '#555', fontWeight: '600' },
+  statSub:    { fontSize: 10, color: MUTED },
   alertGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  alertCard:  { backgroundColor: SURFACE, borderRadius: 14, padding: 14, width: '47%', gap: 4, borderWidth: 1, alignItems: 'flex-start' },
-  alertVal:   { fontSize: 28, fontWeight: '900' },
-  alertLabel: { fontSize: 12, color: GREY, fontWeight: '500' },
+  alertCard:  { backgroundColor: '#111', borderRadius: 12, padding: 14, width: '47%', gap: 4, borderWidth: 1, alignItems: 'flex-start' },
+  alertVal:   { fontSize: 26, fontWeight: '900' },
+  alertLabel: { fontSize: 11, color: '#555', fontWeight: '500' },
 
   // Cards
-  card:       { backgroundColor: SURFACE, borderRadius: 16, padding: 14, gap: 10 },
+  card:       { backgroundColor: '#111', borderRadius: 14, padding: 14, gap: 10, borderWidth: 1, borderColor: '#1a1a1a' },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   avatarCircle:{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#1e1e1e', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarPhoto: { width: 42, height: 42, borderRadius: 21 },
