@@ -750,7 +750,7 @@ export default function CustomerScreen({ navigation }) {
   };
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       const user = data?.user;
       const uid = user?.id || null;
       setUserId(uid);
@@ -758,6 +758,33 @@ export default function CustomerScreen({ navigation }) {
       setUserPhone(user?.user_metadata?.phone || null);
       setGreetingText(getSmartGreeting(user));
       if (uid) registerPush(uid);
+
+      // ── Restore active order if customer closed app mid-tracking ──────────
+      if (uid) {
+        const { data: activeOrder } = await supabase
+          .from('orders')
+          .select('id, status, delivery_pin, from_address, to_address, from_lat, from_lon, to_lat, to_lon, dist_km, price, rider_id, rider_name')
+          .eq('user_id', uid)
+          .in('status', ['pending', 'on_the_way', 'awaiting_payment', 'scheduled'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (activeOrder) {
+          // Restore all route state
+          if (activeOrder.from_address) setFrom(activeOrder.from_address);
+          if (activeOrder.to_address)   setTo(activeOrder.to_address);
+          if (activeOrder.dist_km)      setDist(parseFloat(activeOrder.dist_km));
+          if (activeOrder.price)        setPrice(parseFloat(activeOrder.price));
+          if (activeOrder.from_lat && activeOrder.from_lon)
+            setFromCoords({ lat: activeOrder.from_lat, lon: activeOrder.from_lon });
+          if (activeOrder.to_lat && activeOrder.to_lon)
+            setToCoords({ lat: activeOrder.to_lat, lon: activeOrder.to_lon });
+          if (activeOrder.rider_name)   setRiderName(activeOrder.rider_name);
+          if (activeOrder.rider_id)     setRiderId(activeOrder.rider_id);
+          startOrderTracking(activeOrder.id, activeOrder.delivery_pin, activeOrder.status);
+        }
+      }
     });
 
     // Silently grab location to centre the home screen background map
