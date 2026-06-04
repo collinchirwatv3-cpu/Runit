@@ -77,77 +77,66 @@ function JobBanner({ job, onAccept, onDismiss }) {
   return (
     <Animated.View style={[jb.wrap, { transform: [{ translateY }], opacity }]}>
       <View style={jb.inner}>
-        <View style={jb.accent} />
-        <View style={jb.body}>
-          {/* Top row: badge + size + dismiss */}
-          <View style={jb.topRow}>
-            <View style={jb.badge}><Text style={jb.badgeTxt}>NEW JOB</Text></View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={[jb.sizeBadge, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
-                <Ionicons name={job.size === 'large' ? 'archive-outline' : 'cube-outline'} size={11} color={GREY} />
-                <Text style={jb.sizeTxt}>{job.size === 'large' ? 'Large' : 'Small'}</Text>
-              </View>
-              <TouchableOpacity style={jb.closeBtn} onPress={() => slideOut(onDismiss)} activeOpacity={0.7}>
-                <Ionicons name="close" size={18} color={GREY} />
-              </TouchableOpacity>
+
+        {/* ── Header: pay + dismiss ── */}
+        <View style={jb.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={jb.pay}>
+              R {job.pay}
+              {job.tip > 0 ? <Text style={jb.tipInline}> +R{job.tip}</Text> : null}
+            </Text>
+            {/* Stat row: trip distance · trip time · package */}
+            <View style={jb.statsRow}>
+              <Text style={jb.stat}>{job.km} km</Text>
+              <Text style={jb.statSep}>·</Text>
+              <Text style={jb.stat}>~{job.time} min</Text>
+              <Text style={jb.statSep}>·</Text>
+              <Ionicons name={job.size === 'large' ? 'archive-outline' : 'cube-outline'} size={12} color={GREY} />
+              <Text style={jb.stat}>{job.size === 'large' ? 'Large' : 'Small'}</Text>
+              {job.distToPickup != null && (
+                <>
+                  <Text style={jb.statSep}>·</Text>
+                  <Text style={[jb.stat, { color: LIME }]}>{job.distToPickup} km away</Text>
+                </>
+              )}
             </View>
           </View>
-
-          {/* Pay + tip */}
-          <View style={jb.payRow}>
-            <Text style={jb.pay}>R {job.pay}</Text>
-            {job.tip > 0 && (
-              <View style={jb.tipBadge}>
-                <Ionicons name="gift-outline" size={11} color={GREEN} />
-                <Text style={jb.tipTxt}>+R{job.tip} tip</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Route */}
-          <View style={jb.routeRow}>
-            <View style={jb.routeStop}>
-              <View style={[jb.routeDot, { backgroundColor: LIME }]} />
-              <Text style={jb.routeAddr} numberOfLines={1}>{job.from}</Text>
-            </View>
-            <View style={jb.routeLine} />
-            <View style={jb.routeStop}>
-              <View style={[jb.routeDot, { backgroundColor: '#ef4444' }]} />
-              <Text style={jb.routeAddr} numberOfLines={1}>{job.to}</Text>
-            </View>
-          </View>
-
-          {/* Meta: distance, time, proximity */}
-          <View style={jb.metaRow}>
-            <View style={jb.metaChip}>
-              <Ionicons name="navigate-outline" size={11} color={GREY} />
-              <Text style={jb.metaTxt}>{job.km} km</Text>
-            </View>
-            <View style={jb.metaChip}>
-              <Ionicons name="time-outline" size={11} color={GREY} />
-              <Text style={jb.metaTxt}>~{job.time} min</Text>
-            </View>
-            {job.distToPickup != null && (
-              <View style={jb.metaChip}>
-                <Ionicons name="location-outline" size={11} color={LIME} />
-                <Text style={[jb.metaTxt, { color: LIME }]}>{job.distToPickup} km away</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Notes */}
-          {job.notes ? (
-            <View style={jb.notesRow}>
-              <Ionicons name="chatbubble-outline" size={12} color={AMBER} />
-              <Text style={jb.notesTxt} numberOfLines={2}>{job.notes}</Text>
-            </View>
-          ) : null}
-
-          {/* Accept button */}
-          <TouchableOpacity style={jb.acceptBtn} onPress={() => slideOut(onAccept)} activeOpacity={0.85}>
-            <Text style={jb.acceptTxt}>Accept · R {job.pay}</Text>
+          <TouchableOpacity style={jb.closeBtn} onPress={() => slideOut(onDismiss)} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="close" size={20} color={GREY} />
           </TouchableOpacity>
         </View>
+
+        {/* ── Divider ── */}
+        <View style={jb.divider} />
+
+        {/* ── Route ── */}
+        <View style={jb.route}>
+          <View style={jb.routeStop}>
+            <View style={[jb.routeDot, { backgroundColor: LIME }]} />
+            <Text style={jb.routeAddr} numberOfLines={1}>{job.from}</Text>
+          </View>
+          <View style={jb.routeConnector}>
+            <View style={jb.routeConnLine} />
+          </View>
+          <View style={jb.routeStop}>
+            <View style={[jb.routeDot, { backgroundColor: '#ef4444' }]} />
+            <Text style={jb.routeAddr} numberOfLines={1}>{job.to}</Text>
+          </View>
+        </View>
+
+        {/* ── Notes (if any) ── */}
+        {job.notes ? (
+          <View style={jb.notesRow}>
+            <Ionicons name="chatbubble-outline" size={13} color={AMBER} />
+            <Text style={jb.notesTxt} numberOfLines={2}>{job.notes}</Text>
+          </View>
+        ) : null}
+
+        {/* ── Accept ── */}
+        <TouchableOpacity style={jb.acceptBtn} onPress={() => slideOut(onAccept)} activeOpacity={0.85}>
+          <Text style={jb.acceptTxt}>Accept</Text>
+        </TouchableOpacity>
+
       </View>
     </Animated.View>
   );
@@ -2420,70 +2409,54 @@ export default function RiderScreen({ navigation }) {
 const jb = StyleSheet.create({
   wrap: {
     position: 'absolute', top: 82, left: 12, right: 12, zIndex: 300,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.6, shadowRadius: 28, elevation: 24,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.65, shadowRadius: 32, elevation: 28,
   },
   inner: {
-    flexDirection: 'row', backgroundColor: '#141414',
-    borderRadius: 24, overflow: 'hidden',
-    borderWidth: 1, borderColor: '#2a2a2a',
+    backgroundColor: '#141414', borderRadius: 24, overflow: 'hidden',
+    borderWidth: 1, borderColor: '#272727',
   },
-  accent: { width: 5, backgroundColor: LIME },
-  body: { flex: 1, padding: 16 },
 
-  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  badge: {
-    backgroundColor: LIME + '20', borderWidth: 1, borderColor: LIME + '40',
-    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4,
+  // Header — pay + stats + dismiss
+  header: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    paddingHorizontal: 18, paddingTop: 18, paddingBottom: 14, gap: 10,
   },
-  badgeTxt: { fontSize: 10, fontWeight: '900', color: LIME, letterSpacing: 2 },
-  sizeBadge: {
-    backgroundColor: '#1e1e1e', borderRadius: 10,
-    paddingHorizontal: 10, paddingVertical: 4,
-  },
-  sizeTxt: { fontSize: 12, fontWeight: '700', color: '#aaa' },
+  pay: { fontSize: 44, fontWeight: '900', color: '#fff', letterSpacing: -1.5, lineHeight: 48 },
+  tipInline: { fontSize: 18, fontWeight: '700', color: GREEN },
+  statsRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4, flexWrap: 'wrap' },
+  stat: { fontSize: 13, fontWeight: '600', color: GREY },
+  statSep: { fontSize: 13, color: '#333', fontWeight: '400' },
+
   closeBtn: {
-    width: 40, height: 40, borderRadius: 20,          // ← bigger hit target
-    backgroundColor: '#1e1e1e', alignItems: 'center', justifyContent: 'center',
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#222', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
 
-  payRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  pay: { fontSize: 42, fontWeight: '900', color: GREEN, letterSpacing: -1 },
-  payLbl: { fontSize: 10, fontWeight: '700', color: GREEN + '80', letterSpacing: 0.5, textTransform: 'uppercase', marginTop: -4 },
-  tipBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: GREEN + '18', borderRadius: 10,
-    paddingHorizontal: 9, paddingVertical: 4,
-  },
-  tipTxt: { fontSize: 13, fontWeight: '800', color: GREEN },
+  divider: { height: 1, backgroundColor: '#1e1e1e', marginHorizontal: 18 },
 
-  routeRow: { marginBottom: 10 },
-  routeStop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  // Route
+  route: { paddingHorizontal: 18, paddingVertical: 14 },
+  routeStop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   routeDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
-  routeAddr: { fontSize: 15, fontWeight: '700', color: '#fff', flex: 1 }, // ← larger
-  routeLine: { width: 1.5, height: 12, backgroundColor: '#2a2a2a', marginLeft: 4, marginBottom: 4 },
+  routeAddr: { fontSize: 14, fontWeight: '600', color: '#ccc', flex: 1 },
+  routeConnector: { paddingLeft: 22, paddingVertical: 3 },
+  routeConnLine: { width: 1.5, height: 10, backgroundColor: '#2a2a2a' },
 
-  metaRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
-  metaChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: '#1e1e1e', borderRadius: 10,
-    paddingHorizontal: 10, paddingVertical: 6,          // ← taller chips
-  },
-  metaTxt: { fontSize: 13, fontWeight: '600', color: GREY },
-
+  // Notes
   notesRow: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-    backgroundColor: AMBER + '10', borderRadius: 12,
-    padding: 10, marginBottom: 10,
+    backgroundColor: AMBER + '10', marginHorizontal: 18,
+    borderRadius: 12, padding: 10, marginBottom: 4,
   },
-  notesTxt: { fontSize: 13, color: AMBER, flex: 1, fontWeight: '600' },
+  notesTxt: { fontSize: 13, color: AMBER, flex: 1, fontWeight: '600', lineHeight: 18 },
 
-  // ← ACCEPT: full-width, 68px tall — can't miss it
+  // Accept button
   acceptBtn: {
-    backgroundColor: LIME, borderRadius: 18, height: 68,
+    margin: 12, backgroundColor: LIME, borderRadius: 18, height: 64,
     alignItems: 'center', justifyContent: 'center',
     shadowColor: LIME, shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4, shadowRadius: 16, elevation: 10,
+    shadowOpacity: 0.35, shadowRadius: 16, elevation: 10,
   },
   acceptTxt: { fontSize: 18, fontWeight: '900', color: BG, letterSpacing: 0.5 },
 });
