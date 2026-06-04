@@ -27,6 +27,15 @@ const DEFAULT_BASE = 15;
 const DEFAULT_RATE = 6.5;
 const DEFAULT_LARGE_MULT = 1.4;
 
+function haversine(a, b) {
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const x = Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
 // ─── Package definitions ───────────────────────────────────────────────────
 const PACKAGE_SIZES = [
   {
@@ -271,8 +280,10 @@ export default function MerchantScreen({ navigation }) {
   const [toast,            setToast]           = useState(null);     // { msg, type }
   const toastTimerRef = useRef(null);
 
-  // ── Pricing ───────────────────────────────────────────────────────────
-  const [pricing, setPricing] = useState({ base_fee: DEFAULT_BASE, per_km_rate: DEFAULT_RATE, large_multiplier: DEFAULT_LARGE_MULT });
+  // ── Pricing + Surge ───────────────────────────────────────────────────
+  const [pricing, setPricing]       = useState({ base_fee: DEFAULT_BASE, per_km_rate: DEFAULT_RATE, large_multiplier: DEFAULT_LARGE_MULT });
+  const [surgeZones, setSurgeZones] = useState([]);
+  const [surgeInfo,  setSurgeInfo]  = useState(null);
 
   // ── Card on file ─────────────────────────────────────────────────────
   const [cardOnFile,        setCardOnFile]        = useState(null);   // { payfast_token } or null
@@ -297,9 +308,11 @@ export default function MerchantScreen({ navigation }) {
         loadHours(uid);
         loadCard(uid);
       }
-      // Fetch live pricing (runs regardless of uid)
+      // Fetch live pricing + surge zones
       supabase.from('pricing').select('base_fee, per_km_rate, large_multiplier').limit(1).maybeSingle()
         .then(({ data }) => { if (data) setPricing(data); });
+      supabase.from('surge_zones').select('*').eq('is_enabled', true)
+        .then(({ data }) => { if (data) setSurgeZones(data); });
     });
 
     // Detect return from PayFast card registration redirect
@@ -498,6 +511,28 @@ export default function MerchantScreen({ navigation }) {
     return json;
   };
 
+  // ─── Surge check ──────────────────────────────────────────────────────
+  const checkSurge = async (coords) => {
+    if (!coords || !surgeZones.length) { setSurgeInfo(null); return null; }
+    for (const zone of surgeZones) {
+      const dist = haversine(coords, { lat: zone.lat, lon: zone.lon });
+      if (dist <= parseFloat(zone.radius_km)) {
+        const delta = parseFloat(zone.radius_km) / 111;
+        const { count } = await supabase
+          .from('orders').select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .gte('from_lat', zone.lat - delta).lte('from_lat', zone.lat + delta)
+          .gte('from_lon', zone.lon - delta).lte('from_lon', zone.lon + delta);
+        const n = count || 0;
+        let multiplier = 1.0, label = null;
+        if (n >= parseInt(zone.tier2_threshold)) { multiplier = parseFloat(zone.tier2_multiplier); label = n >= 10 ? '🔥 Peak' : '⚡⚡ Very Busy'; }
+        else if (n >= parseInt(zone.tier1_threshold)) { multiplier = parseFloat(zone.tier1_multiplier); label = '⚡ High Demand'; }
+        if (multiplier > 1) { const info = { multiplier, label }; setSurgeInfo(info); return info; }
+      }
+    }
+    setSurgeInfo(null); return null;
+  };
+
   // ─── Dispatch helpers ─────────────────────────────────────────────────
   const handleDispToChange = (text) => {
     setDispTo(text);
@@ -521,8 +556,12 @@ export default function MerchantScreen({ navigation }) {
     const from = defaultPickup;
     if (from) {
       setDispCalc(true);
-      const route = await getRoute(from, { lat: sug.lat, lon: sug.lon });
-      const p = Math.round((pricing.base_fee + route.distKm * pricing.per_km_rate) * (dispSize === 'large' ? pricing.large_multiplier : 1));
+      const [route, surge] = await Promise.all([
+        getRoute(from, { lat: sug.lat, lon: sug.lon }),
+        checkSurge(from), // surge based on pickup location
+      ]);
+      const sm = surge?.multiplier || 1;
+      const p = Math.round((pricing.base_fee + route.distKm * pricing.per_km_rate) * (dispSize === 'large' ? pricing.large_multiplier : 1) * sm);
       setDispPrice(p);
       setDispEta(route.durationMin);
       setDispDist(Math.round(route.distKm * 10) / 10);

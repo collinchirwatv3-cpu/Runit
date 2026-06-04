@@ -112,6 +112,13 @@ export default function AdminScreen({ navigation }) {
   const [pricing, setPricing]               = useState({ base_fee: '15.00', per_km_rate: '6.50', large_multiplier: '1.40' });
   const [pricingSaving, setPricingSaving]   = useState(false);
   const [pricingSaved, setPricingSaved]     = useState(false);
+  // Surge zones
+  const [surgeZones, setSurgeZones]         = useState([]);
+  const [surgeTab, setSurgeTab]             = useState('pricing'); // 'pricing' | 'zones'
+  const [showZoneForm, setShowZoneForm]     = useState(false);
+  const [editingZone, setEditingZone]       = useState(null);
+  const [zoneForm, setZoneForm]             = useState({ name: '', lat: '', lon: '', radius_km: '3', tier1_threshold: '3', tier2_threshold: '6', tier1_multiplier: '1.20', tier2_multiplier: '1.35' });
+  const [zoneSaving, setZoneSaving]         = useState(false);
 
   // Verifications UI state
   const [verifTab, setVerifTab]             = useState('submitted');
@@ -163,6 +170,8 @@ export default function AdminScreen({ navigation }) {
       per_km_rate:     String(prData.per_km_rate),
       large_multiplier:String(prData.large_multiplier),
     });
+    const { data: szData } = await supabase.from('surge_zones').select('*').order('name');
+    setSurgeZones(szData || []);
     setLoading(false);
     setRefreshing(false);
   };
@@ -400,6 +409,36 @@ export default function AdminScreen({ navigation }) {
       }).catch(() => {});
     }
   };
+  const saveZone = async () => {
+    const { name, lat, lon, radius_km, tier1_threshold, tier2_threshold, tier1_multiplier, tier2_multiplier } = zoneForm;
+    if (!name.trim() || !lat || !lon) return;
+    setZoneSaving(true);
+    const payload = {
+      name: name.trim(), lat: parseFloat(lat), lon: parseFloat(lon),
+      radius_km: parseFloat(radius_km), tier1_threshold: parseInt(tier1_threshold),
+      tier2_threshold: parseInt(tier2_threshold), tier1_multiplier: parseFloat(tier1_multiplier),
+      tier2_multiplier: parseFloat(tier2_multiplier), is_enabled: true,
+    };
+    if (editingZone) {
+      await supabase.from('surge_zones').update(payload).eq('id', editingZone.id);
+    } else {
+      await supabase.from('surge_zones').insert([payload]);
+    }
+    setZoneSaving(false);
+    setShowZoneForm(false); setEditingZone(null);
+    setZoneForm({ name: '', lat: '', lon: '', radius_km: '3', tier1_threshold: '3', tier2_threshold: '6', tier1_multiplier: '1.20', tier2_multiplier: '1.35' });
+    const { data } = await supabase.from('surge_zones').select('*').order('name');
+    setSurgeZones(data || []);
+  };
+  const toggleZone = async (zone) => {
+    await supabase.from('surge_zones').update({ is_enabled: !zone.is_enabled }).eq('id', zone.id);
+    setSurgeZones(prev => prev.map(z => z.id === zone.id ? { ...z, is_enabled: !z.is_enabled } : z));
+  };
+  const deleteZone = async (id) => {
+    await supabase.from('surge_zones').delete().eq('id', id);
+    setSurgeZones(prev => prev.filter(z => z.id !== id));
+  };
+
   const savePricing = async () => {
     const base = parseFloat(pricing.base_fee);
     const rate = parseFloat(pricing.per_km_rate);
@@ -948,9 +987,90 @@ export default function AdminScreen({ navigation }) {
       {section === 'pricing' && isSuperAdmin && (
         <ScrollView contentContainerStyle={s.page}>
           <View style={s.pageHeader}>
-            <Text style={s.pageTitle}>Delivery Pricing</Text>
-            <Text style={s.pageDesc}>Changes apply immediately to all new bookings. Existing orders are unaffected.</Text>
+            <Text style={s.pageTitle}>Pricing & Surge</Text>
+            <Text style={s.pageDesc}>Changes apply immediately to all new bookings.</Text>
           </View>
+
+          {/* Sub-tab switcher */}
+          <View style={s.subTabBar}>
+            {[{ key: 'pricing', label: 'Base Pricing' }, { key: 'zones', label: 'Surge Zones' }].map(t => (
+              <TouchableOpacity key={t.key} style={[s.subTab, surgeTab === t.key && s.subTabActive]} onPress={() => setSurgeTab(t.key)}>
+                <Text style={[s.subTabTxt, surgeTab === t.key && s.subTabTxtActive]}>{t.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {surgeTab === 'zones' && (
+            <>
+              {surgeZones.length === 0 && !showZoneForm && (
+                <View style={[s.formCard, { padding: 20, alignItems: 'center', gap: 8 }]}>
+                  <Ionicons name="location-outline" size={32} color={GREY} />
+                  <Text style={s.cardTitle}>No surge zones yet</Text>
+                  <Text style={s.cardSub}>Add a zone to enable automatic demand-based pricing</Text>
+                </View>
+              )}
+              {surgeZones.map(zone => (
+                <View key={zone.id} style={[s.formCard, { marginBottom: 10 }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 }}>
+                    <View style={[s.statIcon, { backgroundColor: zone.is_enabled ? LIME + '15' : '#1a1a1a' }]}>
+                      <Ionicons name="location" size={16} color={zone.is_enabled ? LIME : GREY} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.cardTitle}>{zone.name}</Text>
+                      <Text style={s.cardSub}>{zone.radius_km} km radius · Tier 1 at {zone.tier1_threshold} orders (×{zone.tier1_multiplier}) · Tier 2 at {zone.tier2_threshold} orders (×{zone.tier2_multiplier})</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => toggleZone(zone)} style={[s.subTab, { paddingHorizontal: 10, paddingVertical: 5, backgroundColor: zone.is_enabled ? LIME + '20' : '#1a1a1a' }]}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: zone.is_enabled ? LIME : GREY }}>{zone.is_enabled ? 'ON' : 'OFF'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => { setEditingZone(zone); setZoneForm({ name: zone.name, lat: String(zone.lat), lon: String(zone.lon), radius_km: String(zone.radius_km), tier1_threshold: String(zone.tier1_threshold), tier2_threshold: String(zone.tier2_threshold), tier1_multiplier: String(zone.tier1_multiplier), tier2_multiplier: String(zone.tier2_multiplier) }); setShowZoneForm(true); }} style={s.logoutBtn}>
+                      <Ionicons name="create-outline" size={16} color={GREY} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => deleteZone(zone.id)} style={s.logoutBtn}>
+                      <Ionicons name="trash-outline" size={16} color={RED + '99'} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+              {showZoneForm ? (
+                <View style={s.formCard}>
+                  <Text style={[s.formSectionTitle, { borderTopLeftRadius: 14, borderTopRightRadius: 14 }]}>{editingZone ? 'EDIT ZONE' : 'NEW ZONE'}</Text>
+                  {[
+                    { label: 'Zone name', key: 'name', hint: 'e.g. Cape Town CBD', kb: 'default' },
+                    { label: 'Latitude', key: 'lat', hint: 'e.g. -33.9249', kb: 'decimal-pad' },
+                    { label: 'Longitude', key: 'lon', hint: 'e.g. 18.4241', kb: 'decimal-pad' },
+                    { label: 'Radius (km)', key: 'radius_km', hint: 'Zone coverage radius', kb: 'decimal-pad' },
+                    { label: 'Tier 1 threshold (orders)', key: 'tier1_threshold', hint: 'Pending orders to trigger ×1.2', kb: 'numeric' },
+                    { label: 'Tier 1 multiplier', key: 'tier1_multiplier', hint: 'e.g. 1.20', kb: 'decimal-pad' },
+                    { label: 'Tier 2 threshold (orders)', key: 'tier2_threshold', hint: 'Pending orders to trigger ×1.35', kb: 'numeric' },
+                    { label: 'Tier 2 multiplier', key: 'tier2_multiplier', hint: 'e.g. 1.35', kb: 'decimal-pad' },
+                  ].map(({ label, key, hint, kb }, i, arr) => (
+                    <View key={key} style={[s.formRow, i < arr.length - 1 && { borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }]}>
+                      <Text style={s.formLabel}>{label}</Text>
+                      <Text style={s.formHint}>{hint}</Text>
+                      <View style={s.formInputWrap}>
+                        <TextInput style={s.formInput} value={String(zoneForm[key])} onChangeText={v => setZoneForm(f => ({ ...f, [key]: v }))} keyboardType={kb} selectTextOnFocus placeholderTextColor={GREY} />
+                      </View>
+                    </View>
+                  ))}
+                  <View style={{ flexDirection: 'row', gap: 8, padding: 14 }}>
+                    <TouchableOpacity style={[s.subTab, { flex: 1, height: 44, justifyContent: 'center' }]} onPress={() => { setShowZoneForm(false); setEditingZone(null); }}>
+                      <Text style={s.subTabTxt}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[s.saveBtn, { flex: 2, borderRadius: 10, marginTop: 0 }, zoneSaving && { opacity: 0.6 }]} onPress={saveZone} disabled={zoneSaving}>
+                      {zoneSaving ? <ActivityIndicator color="#000" size="small" /> : <Text style={s.saveBtnTxt}>{editingZone ? 'Update Zone' : 'Add Zone'}</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity style={[s.saveBtn, { marginTop: 4 }]} onPress={() => setShowZoneForm(true)} activeOpacity={0.85}>
+                  <Text style={s.saveBtnTxt}>+ Add Surge Zone</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
+
+          {surgeTab === 'pricing' && (
+            <>
 
           {/* Form fields */}
           <View style={s.formCard}>
@@ -1015,6 +1135,7 @@ export default function AdminScreen({ navigation }) {
               : <Text style={s.saveBtnTxt}>{pricingSaved ? '✓ Saved' : 'Save Changes'}</Text>
             }
           </TouchableOpacity>
+          </>)}
         </ScrollView>
       )}
 
@@ -1640,6 +1761,13 @@ const s = StyleSheet.create({
   tableCell:  { fontSize: 13, color: '#888', paddingHorizontal: 16 },
   saveBtn:    { height: 48, borderRadius: 10, backgroundColor: LIME, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   saveBtnTxt: { fontSize: 14, fontWeight: '800', color: '#000', letterSpacing: 0.3 },
+
+  // Sub-tabs (inside a section)
+  subTabBar:     { flexDirection: 'row', backgroundColor: '#111', borderRadius: 12, padding: 3, marginBottom: 16, borderWidth: 1, borderColor: '#1e1e1e' },
+  subTab:        { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 9 },
+  subTabActive:  { backgroundColor: '#1e1e1e' },
+  subTabTxt:     { fontSize: 13, fontWeight: '600', color: '#555' },
+  subTabTxtActive:{ color: '#ccc' },
 
   // Overview
   sectionHeading: { fontSize: 10, fontWeight: '800', color: '#444', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 },

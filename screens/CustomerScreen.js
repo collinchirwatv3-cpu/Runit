@@ -84,6 +84,16 @@ async function geocode(query) {
   return null;
 }
 
+// ─── Haversine distance (km) ──────────────────────────────────────────────
+function haversine(a, b) {
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const x = Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
 // ─── OSRM routing ────────────────────────────────────────────────────────
 
 async function getRoute(a, b) {
@@ -680,6 +690,9 @@ export default function CustomerScreen({ navigation }) {
   const [screen, setScreen] = useState('home');
   const [homeMapCenter, setHomeMapCenter] = useState({ lat: -33.9249, lon: 18.4241 });
   const [pricing, setPricing] = useState({ base_fee: DEFAULT_BASE, per_km_rate: DEFAULT_RATE, large_multiplier: DEFAULT_LARGE_MULT });
+  const [surgeZones, setSurgeZones] = useState([]);
+  const [surgeInfo, setSurgeInfo]   = useState(null); // { multiplier, label, zoneName } | null
+  const surgeInfoRef = useRef(null); // mirror for closure access
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [packageSize, setPackageSize] = useState('small');
@@ -790,9 +803,11 @@ export default function CustomerScreen({ navigation }) {
       }
     });
 
-    // Fetch live pricing from DB (falls back to defaults if unavailable)
+    // Fetch live pricing + surge zones from DB
     supabase.from('pricing').select('base_fee, per_km_rate, large_multiplier').limit(1).maybeSingle()
       .then(({ data }) => { if (data) setPricing(data); });
+    supabase.from('surge_zones').select('*').eq('is_enabled', true)
+      .then(({ data }) => { if (data) setSurgeZones(data); });
 
     // Silently grab location to centre the home screen background map
     if (Platform.OS === 'web' && navigator?.geolocation) {
@@ -858,10 +873,11 @@ export default function CustomerScreen({ navigation }) {
       const coords = { lat, lon };
       if (pin === 'from') {
         setFrom(label); setFromCoords(coords); setFromConfirmed(true);
-        if (toCoords) calcRouteWithCoords(coords, toCoords, packageSize);
+        const surge = await checkSurge(coords);
+        if (toCoords) calcRouteWithCoords(coords, toCoords, packageSize, surge);
       } else {
         setTo(label); setToCoords(coords); setToConfirmed(true);
-        if (fromCoords) calcRouteWithCoords(fromCoords, coords, packageSize);
+        if (fromCoords) calcRouteWithCoords(fromCoords, coords, packageSize, surgeInfoRef.current);
       }
     };
   }, [fromCoords, toCoords, packageSize]);
@@ -893,31 +909,73 @@ export default function CustomerScreen({ navigation }) {
     if (prevFC && prevTC) await calcRouteWithCoords(prevTC, prevFC, packageSize);
   };
 
+  // ── Surge check — runs when pickup address is confirmed ──────────────────
+  const checkSurge = async (coords) => {
+    if (!coords || !surgeZones.length) { setSurgeInfo(null); surgeInfoRef.current = null; return null; }
+    for (const zone of surgeZones) {
+      const dist = haversine(coords, { lat: zone.lat, lon: zone.lon });
+      if (dist <= parseFloat(zone.radius_km)) {
+        // Count pending orders in zone bounding box (fast approximation)
+        const delta = parseFloat(zone.radius_km) / 111;
+        const { count } = await supabase
+          .from('orders')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .gte('from_lat', zone.lat - delta)
+          .lte('from_lat', zone.lat + delta)
+          .gte('from_lon', zone.lon - delta)
+          .lte('from_lon', zone.lon + delta);
+
+        const n = count || 0;
+        let multiplier = 1.0;
+        let label = null;
+
+        if (n >= parseInt(zone.tier2_threshold)) {
+          multiplier = parseFloat(zone.tier2_multiplier);
+          label = n >= 10 ? '🔥 Peak Demand' : '⚡⚡ Very Busy';
+        } else if (n >= parseInt(zone.tier1_threshold)) {
+          multiplier = parseFloat(zone.tier1_multiplier);
+          label = '⚡ High Demand';
+        }
+
+        if (multiplier > 1) {
+          const info = { multiplier, label, zoneName: zone.name };
+          setSurgeInfo(info); surgeInfoRef.current = info;
+          return info;
+        }
+      }
+    }
+    setSurgeInfo(null); surgeInfoRef.current = null;
+    return null;
+  };
+
   const confirmAddress = async (sug, field) => {
     setAddressModal(null);
     const coords = { lat: sug.lat, lon: sug.lon };
     if (field === 'from') {
       setFrom(sug.label); setFromCoords(coords); setFromConfirmed(true);
+      const surge = await checkSurge(coords);
       if (toCoords) {
-        await calcRouteWithCoords(coords, toCoords, packageSize);
+        await calcRouteWithCoords(coords, toCoords, packageSize, surge);
       } else {
         setTimeout(() => setAddressModal('to'), 350);
       }
     } else {
       setTo(sug.label); setToCoords(coords); setToConfirmed(true);
       if (fromCoords) {
-        await calcRouteWithCoords(fromCoords, coords, packageSize);
+        await calcRouteWithCoords(fromCoords, coords, packageSize, surgeInfoRef.current);
       } else {
         setTimeout(() => setAddressModal('from'), 350);
       }
     }
   };
 
-  const calcRouteWithCoords = async (a, b, size) => {
+  const calcRouteWithCoords = async (a, b, size, surge = null) => {
     setCalculating(true);
     setDist(null); setPrice(null); setEta(null); setRouteCoords(null);
     const route = await getRoute(a, b);
-    const p = Math.round((pricing.base_fee + route.distKm * pricing.per_km_rate) * (size === 'large' ? pricing.large_multiplier : 1));
+    const sm = surge?.multiplier || surgeInfoRef.current?.multiplier || 1;
+    const p = Math.round((pricing.base_fee + route.distKm * pricing.per_km_rate) * (size === 'large' ? pricing.large_multiplier : 1) * sm);
     setFromCoords(a); setToCoords(b); setRouteCoords(route.coords);
     setDist(route.distKm); setEta(route.durationMin); setPrice(p);
     setCalculating(false);
@@ -1312,6 +1370,20 @@ map.setView([${homeMapCenter.lat},${homeMapCenter.lon}],14);
             onClose={() => setAddressModal(null)}
           />
 
+          {/* Surge banner — shown when demand is high in pickup area */}
+          {surgeInfo && (
+            <View style={s.surgeBanner}>
+              <Text style={s.surgeIcon}>{surgeInfo.multiplier >= 1.4 ? '🔥' : '⚡'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.surgeBannerTitle}>{surgeInfo.label}</Text>
+                <Text style={s.surgeBannerSub}>High demand in {surgeInfo.zoneName} · prices adjusted</Text>
+              </View>
+              <View style={s.surgeMult}>
+                <Text style={s.surgeMultTxt}>{surgeInfo.multiplier}×</Text>
+              </View>
+            </View>
+          )}
+
           {calculating && (
             <View style={s.calcRow}>
               <ActivityIndicator size="small" color={LIME} />
@@ -1372,14 +1444,22 @@ map.setView([${homeMapCenter.lat},${homeMapCenter.lon}],14);
 
           {/* Price card — only shown when price is calculated */}
           {price !== null && (
-            <View style={s.priceCard}>
+            <View style={[s.priceCard, surgeInfo && { borderColor: '#f59e0b40', borderWidth: 1 }]}>
               <View>
                 <Text style={s.priceNum}>R {price}</Text>
                 <Text style={s.priceMeta}>
-                  Delivery fare{packageSize === 'large' ? ` · large ×${pricing.large_multiplier}` : ''}
+                  Delivery fare
+                  {packageSize === 'large' ? ` · large ×${pricing.large_multiplier}` : ''}
+                  {surgeInfo ? ` · surge ×${surgeInfo.multiplier}` : ''}
                 </Text>
               </View>
-              <View style={s.bestRate}><Text style={s.bestRateTxt}>Best Rate</Text></View>
+              {surgeInfo ? (
+                <View style={[s.bestRate, { backgroundColor: '#f59e0b20', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5 }]}>
+                  <Text style={[s.bestRateTxt, { color: '#f59e0b' }]}>{surgeInfo.label}</Text>
+                </View>
+              ) : (
+                <View style={s.bestRate}><Text style={s.bestRateTxt}>Best Rate</Text></View>
+              )}
             </View>
           )}
 
@@ -1864,6 +1944,23 @@ const s = StyleSheet.create({
   priceMeta: { fontSize: 12, color: '#5a7a1a', marginTop: 2, fontWeight: '600' },
   bestRate: { backgroundColor: LIME, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7 },
   bestRateTxt: { fontSize: 12, fontWeight: '900', color: BG },
+
+  // Surge
+  surgeBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#f59e0b12', borderRadius: 16,
+    borderWidth: 1, borderColor: '#f59e0b35',
+    paddingHorizontal: 16, paddingVertical: 12, marginBottom: 12,
+  },
+  surgeIcon: { fontSize: 22 },
+  surgeBannerTitle: { fontSize: 14, fontWeight: '800', color: '#f59e0b', marginBottom: 2 },
+  surgeBannerSub: { fontSize: 12, color: '#f59e0b99' },
+  surgeMult: {
+    backgroundColor: '#f59e0b22', borderRadius: 10,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: '#f59e0b40',
+  },
+  surgeMultTxt: { fontSize: 15, fontWeight: '900', color: '#f59e0b' },
 
   // Post-delivery tip card
   tipCard: {
