@@ -765,6 +765,7 @@ export default function RiderScreen({ navigation }) {
   const [payoutRequests, setPayoutRequests] = useState([]);
   const [completionRate, setCompletionRate] = useState(null);
   const locationIntervalRef = useRef(null);
+  const presenceIntervalRef = useRef(null); // writes idle location to rider_presence
   const sub = useRef(null);
   const tipSubRef = useRef(null);        // realtime listener for incoming tips
   const riderLocRef = useRef(null);      // current rider position (for proximity)
@@ -917,10 +918,12 @@ export default function RiderScreen({ navigation }) {
       setJobs([]);
       sub.current?.unsubscribe();
       stopPassiveLocation();
+      stopPresenceBroadcast(userId);
       return;
     }
     if (userId) registerPush(userId);
     startPassiveLocation();
+    startPresenceBroadcast(userId);
     // Small delay so passive location can get a first fix before fetching
     const t = setTimeout(fetchOrders, 1200);
     sub.current = supabase.channel('pending_orders')
@@ -1036,6 +1039,29 @@ export default function RiderScreen({ navigation }) {
       passiveWatchRef.current = null;
     }
     riderLocRef.current = null;
+  };
+
+  // ── Rider presence (shows dot on customer home map) ──────────────────────
+  const startPresenceBroadcast = (uid) => {
+    const write = () => {
+      if (!riderLocRef.current || !uid) return;
+      supabase.from('rider_presence').upsert({
+        rider_id:   uid,
+        lat:        riderLocRef.current.lat,
+        lon:        riderLocRef.current.lon,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'rider_id' }).catch(() => {});
+    };
+    // Small delay so passive location has a first fix
+    setTimeout(write, 3000);
+    clearInterval(presenceIntervalRef.current);
+    presenceIntervalRef.current = setInterval(write, 30000);
+  };
+
+  const stopPresenceBroadcast = (uid) => {
+    clearInterval(presenceIntervalRef.current);
+    presenceIntervalRef.current = null;
+    if (uid) supabase.from('rider_presence').delete().eq('rider_id', uid).catch(() => {});
   };
 
   const showToast = (msg) => {

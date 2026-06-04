@@ -689,10 +689,12 @@ const am = StyleSheet.create({
 export default function CustomerScreen({ navigation }) {
   const [screen, setScreen] = useState('home');
   const [homeMapCenter, setHomeMapCenter] = useState({ lat: -33.9249, lon: 18.4241 });
+  const [nearbyRiders, setNearbyRiders] = useState([]);
+  const homeMapRef = useRef(null);
   const [pricing, setPricing] = useState({ base_fee: DEFAULT_BASE, per_km_rate: DEFAULT_RATE, large_multiplier: DEFAULT_LARGE_MULT });
   const [surgeZones, setSurgeZones] = useState([]);
-  const [surgeInfo, setSurgeInfo]   = useState(null); // { multiplier, label, zoneName } | null
-  const surgeInfoRef = useRef(null); // mirror for closure access
+  const [surgeInfo, setSurgeInfo]   = useState(null);
+  const surgeInfoRef = useRef(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [packageSize, setPackageSize] = useState('small');
@@ -809,6 +811,16 @@ export default function CustomerScreen({ navigation }) {
     supabase.from('surge_zones').select('*').eq('is_enabled', true)
       .then(({ data }) => { if (data) setSurgeZones(data); });
 
+    // Fetch nearby riders for home map (refresh every 30s)
+    const fetchRiders = () => {
+      const cutoff = new Date(Date.now() - 90000).toISOString(); // active in last 90s
+      supabase.from('rider_presence').select('lat, lon').gte('updated_at', cutoff)
+        .then(({ data }) => { if (data) setNearbyRiders(data); });
+    };
+    fetchRiders();
+    const ridersInterval = setInterval(fetchRiders, 30000);
+    return () => clearInterval(ridersInterval);
+
     // Silently grab location to centre the home screen background map
     if (Platform.OS === 'web' && navigator?.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -865,6 +877,15 @@ export default function CustomerScreen({ navigation }) {
       riderLocSubRef.current?.unsubscribe();
     };
   }, []);
+
+  // Push rider positions to home map when they change
+  useEffect(() => {
+    if (Platform.OS === 'web' && homeMapRef.current) {
+      homeMapRef.current.contentWindow?.postMessage(
+        { type: 'updateRiders', riders: nearbyRiders }, '*'
+      );
+    }
+  }, [nearbyRiders]);
 
   // Keep pin-move handler fresh so it always sees latest coords/size
   useEffect(() => {
@@ -1239,6 +1260,18 @@ export default function CustomerScreen({ navigation }) {
 var map=L.map('map',{zoomControl:false,attributionControl:false,dragging:false,touchZoom:false,scrollWheelZoom:false,doubleClickZoom:false,keyboard:false});
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:18,subdomains:'abcd'}).addTo(map);
 map.setView([${homeMapCenter.lat},${homeMapCenter.lon}],14);
+var riderMarkers=[];
+function riderIcon(){
+  return L.divIcon({html:'<div style="font-size:20px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.8));transform:scaleX(-1)">🏍️</div>',iconSize:[26,22],iconAnchor:[13,11],className:''});
+}
+window.addEventListener('message',function(e){
+  if(!e.data||e.data.type!=='updateRiders')return;
+  riderMarkers.forEach(function(m){map.removeLayer(m);});
+  riderMarkers=[];
+  (e.data.riders||[]).forEach(function(r){
+    riderMarkers.push(L.marker([r.lat,r.lon],{icon:riderIcon()}).addTo(map));
+  });
+});
 </script></body></html>`;
 
     return (
@@ -1248,6 +1281,7 @@ map.setView([${homeMapCenter.lat},${homeMapCenter.lon}],14);
         {/* ── Full-screen background map ── */}
         {Platform.OS === 'web' ? (
           <iframe
+            ref={homeMapRef}
             srcDoc={bgMapHtml}
             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', border: 'none', zIndex: 0 }}
             sandbox="allow-scripts"
