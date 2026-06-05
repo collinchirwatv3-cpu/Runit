@@ -289,13 +289,13 @@ export default function AdminScreen({ navigation }) {
     setInviteMsg('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch('/api/admin-invite', {
+      const res = await fetch('/api/admin-team', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ email: inviteEmail.trim(), name: inviteName.trim() }),
+        body: JSON.stringify({ action: 'invite', email: inviteEmail.trim(), name: inviteName.trim() }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Invite failed');
@@ -314,13 +314,13 @@ export default function AdminScreen({ navigation }) {
     setRevoking(userId);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch('/api/admin-revoke', {
+      const res = await fetch('/api/admin-team', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ action: 'revoke', userId }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Revoke failed');
