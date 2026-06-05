@@ -821,12 +821,21 @@ export default function CustomerScreen({ navigation }) {
     const ridersInterval = setInterval(fetchRiders, 30000);
     return () => clearInterval(ridersInterval);
 
-    // Silently grab location to centre the home screen background map
+    // Get live location and pan the home map to it
     if (Platform.OS === 'web' && navigator?.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => setHomeMapCenter({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        (pos) => {
+          const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+          setHomeMapCenter(coords);
+          // Pan the already-mounted map to real location via postMessage
+          setTimeout(() => {
+            homeMapRef.current?.contentWindow?.postMessage(
+              { type: 'setCenter', lat: coords.lat, lon: coords.lon }, '*'
+            );
+          }, 1500); // small delay so map is fully loaded first
+        },
         () => {}, // silently fall back to Cape Town
-        { timeout: 6000, maximumAge: 300000 }
+        { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false }
       );
     }
 
@@ -1264,13 +1273,23 @@ var riderMarkers=[];
 function riderIcon(){
   return L.divIcon({html:'<div style="font-size:20px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.8));transform:scaleX(-1)">🏍️</div>',iconSize:[26,22],iconAnchor:[13,11],className:''});
 }
+var userMarker=null;
 window.addEventListener('message',function(e){
-  if(!e.data||e.data.type!=='updateRiders')return;
-  riderMarkers.forEach(function(m){map.removeLayer(m);});
-  riderMarkers=[];
-  (e.data.riders||[]).forEach(function(r){
-    riderMarkers.push(L.marker([r.lat,r.lon],{icon:riderIcon()}).addTo(map));
-  });
+  if(!e.data)return;
+  if(e.data.type==='updateRiders'){
+    riderMarkers.forEach(function(m){map.removeLayer(m);});
+    riderMarkers=[];
+    (e.data.riders||[]).forEach(function(r){
+      riderMarkers.push(L.marker([r.lat,r.lon],{icon:riderIcon()}).addTo(map));
+    });
+  }
+  if(e.data.type==='setCenter'){
+    map.setView([e.data.lat,e.data.lon],15,{animate:true,duration:1.2});
+    // Show subtle user location dot
+    var pulseIcon=L.divIcon({html:'<div style="width:14px;height:14px;border-radius:50%;background:rgba(200,240,0,0.9);border:3px solid #080808;box-shadow:0 0 0 4px rgba(200,240,0,0.25)"></div>',iconSize:[14,14],iconAnchor:[7,7],className:''});
+    if(userMarker){userMarker.setLatLng([e.data.lat,e.data.lon]);}
+    else{userMarker=L.marker([e.data.lat,e.data.lon],{icon:pulseIcon}).addTo(map);}
+  }
 });
 </script></body></html>`;
 
