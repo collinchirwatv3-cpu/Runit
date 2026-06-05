@@ -778,12 +778,15 @@ export default function CustomerScreen({ navigation }) {
       if (uid) registerPush(uid);
 
       // ── Restore active order if customer closed app mid-tracking ──────────
+      // Only restore orders created in the last 6 hours to avoid picking up stale data
       if (uid) {
+        const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
         const { data: activeOrder } = await supabase
           .from('orders')
           .select('id, status, delivery_pin, from_address, to_address, from_lat, from_lon, to_lat, to_lon, dist_km, price, rider_id, rider_name')
           .eq('user_id', uid)
           .in('status', ['pending', 'on_the_way', 'awaiting_payment', 'scheduled'])
+          .gte('created_at', sixHoursAgo)
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
