@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  ActivityIndicator, TextInput, Linking, RefreshControl, Image,
+  ActivityIndicator, TextInput, Linking, RefreshControl, Image, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
@@ -481,19 +481,28 @@ export default function AdminScreen({ navigation }) {
   const runDangerAction = async (type) => {
     setDangerLoading(true);
     setDangerDone(null);
-    if (type === 'orders') {
-      await supabase.from('orders').delete().neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
-    } else if (type === 'all') {
-      await supabase.from('orders').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('payout_requests').delete().neq('id', 0);
-      await supabase.from('support_tickets').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin-clear-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ type }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed');
+      setDangerDone(type);
+      setTimeout(() => setDangerDone(null), 4000);
+      fetchAll(true);
+      logActivity('danger_clear', null, `Cleared ${type === 'all' ? 'all test data' : 'all orders'}`, {});
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Could not clear data');
+    } finally {
+      setDangerLoading(false);
+      setDangerConfirm(null);
     }
-    setDangerLoading(false);
-    setDangerConfirm(null);
-    setDangerDone(type);
-    setTimeout(() => setDangerDone(null), 4000);
-    fetchAll(true);
-    logActivity('danger_clear', null, `Cleared ${type === 'all' ? 'all test data' : 'all orders'}`, {});
   };
 
   const savePricing = async () => {
